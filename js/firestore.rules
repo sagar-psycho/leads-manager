@@ -1,3 +1,13 @@
+// ============================================================
+// FIRESTORE COMPOSITE INDEX REQUIRED
+// The member-scoped leads query uses:
+//   .where("assignedTo", "==", uid).orderBy("slNo", "desc")
+// This requires a composite index. Create it in the Firebase console:
+//   Collection: leads
+//   Fields:     assignedTo  (Ascending)
+//               slNo        (Descending)
+// Or deploy via firestore.indexes.json.
+// ============================================================
 rules_version = '2';
 
 service cloud.firestore {
@@ -12,7 +22,9 @@ service cloud.firestore {
     }
 
     function myRole() {
-      return isSignedIn() && myUserDoc().data.active == true ? myUserDoc().data.role : null;
+      return isSignedIn() && myUserDoc().data.active == true
+        ? myUserDoc().data.role
+        : null;
     }
 
     function isSuperAdmin() { return isSignedIn() && myRole() == 'superadmin'; }
@@ -20,50 +32,62 @@ service cloud.firestore {
     function isMember()     { return isSignedIn() && myRole() == 'member'; }
     function isStaff()      { return isSuperAdmin() || isAdmin(); }
 
-    // ---------------- USERS ----------------
+    // Returns true when the write touches ONLY the aiSettings field
+    // and nothing else — so users can't use this path to elevate their role.
+    function isAISettingsUpdateOnly() {
+      let incoming = request.resource.data.diff(resource.data).affectedKeys();
+      return incoming.hasOnly(['aiSettings']);
+    }
+
+    // ── USERS ──────────────────────────────────────────────
     match /users/{userId} {
-      // Anyone signed-in and provisioned can read the team list (needed for dropdowns/assignment names)
+
+      // Every active authenticated user can read the team list
+      // (needed for dropdowns and assignment names).
       allow read: if isSignedIn() && myUserDoc().data.active == true;
 
-      // Only Super Admin can create/update/delete team member records
+      // Super Admin: full create / update / delete
       allow create: if isSuperAdmin();
-      allow update: if isSuperAdmin();
       allow delete: if isSuperAdmin();
+
+      // Super Admin: unrestricted update.
+      // Any authenticated user: may update ONLY their own aiSettings field.
+      allow update: if isSuperAdmin()
+        || (isSignedIn()
+            && request.auth.uid == userId
+            && isAISettingsUpdateOnly());
     }
 
-    // ---------------- LEADS ----------------
+    // ── LEADS ───────────────────────────────────────────────
     match /leads/{leadId} {
-      allow read: if isStaff() || (isMember() && resource.data.assignedTo == request.auth.uid);
+      allow read: if isStaff()
+        || (isMember() && resource.data.assignedTo == request.auth.uid);
 
-      // Only Admin / Super Admin can create new leads
       allow create: if isStaff();
-
-      // Only Super Admin may edit full lead details or delete
       allow delete: if isSuperAdmin();
 
-      // Super Admin: full edit. Admin: no edit. Member: may only touch status/history/lastContactedAt/nextFollowUpAt on their own lead.
-      allow update: if isSuperAdmin() ||
-        (isMember() &&
-         resource.data.assignedTo == request.auth.uid &&
-         request.resource.data.assignedTo == resource.data.assignedTo &&
-         request.resource.data.fullName == resource.data.fullName &&
-         request.resource.data.phoneNumber == resource.data.phoneNumber &&
-         request.resource.data.email == resource.data.email &&
-         request.resource.data.companyName == resource.data.companyName &&
-         request.resource.data.serviceNeeded == resource.data.serviceNeeded &&
-         request.resource.data.slNo == resource.data.slNo);
+      allow update: if isSuperAdmin()
+        || (isMember()
+            && resource.data.assignedTo == request.auth.uid
+            && request.resource.data.assignedTo  == resource.data.assignedTo
+            && request.resource.data.fullName     == resource.data.fullName
+            && request.resource.data.phoneNumber  == resource.data.phoneNumber
+            && request.resource.data.email        == resource.data.email
+            && request.resource.data.companyName  == resource.data.companyName
+            && request.resource.data.serviceNeeded == resource.data.serviceNeeded
+            && request.resource.data.slNo         == resource.data.slNo);
     }
 
-    // ---------------- META (counters, round robin) ----------------
+    // ── META (counters, round-robin) ─────────────────────────
     match /meta/{docId} {
-      allow read: if isStaff();
+      allow read:  if isStaff();
       allow write: if isStaff();
     }
 
-    // ---------------- AUDIT TRAIL for deleted leads ----------------
+    // ── AUDIT TRAIL for deleted leads ────────────────────────
     match /deletedLeadsAudit/{docId} {
-      allow read: if isSuperAdmin();
-      allow create: if isSuperAdmin();
+      allow read:          if isSuperAdmin();
+      allow create:        if isSuperAdmin();
       allow update, delete: if false;
     }
   }

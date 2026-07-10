@@ -213,3 +213,255 @@ h1, h2, h3, .auth-brand-title, .sidebar-brand-title {
   .sidebar-user { display: none; }
   .main-content { padding: 20px; }
 }
+
+/* ============================================================
+   AI SALES PITCH — button & modal
+   ============================================================ */
+
+/* Table action button */
+.btn-ai-pitch {
+  background: linear-gradient(135deg, #6339B5 0%, #3E6D9C 100%);
+  border: none;
+  color: #fff;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.btn-ai-pitch:hover,
+.btn-ai-pitch:focus {
+  background: linear-gradient(135deg, #7a4fd6 0%, #4d85be 100%);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(99, 57, 181, 0.35);
+}
+
+/* Modal header */
+.pitch-modal-header {
+  background: linear-gradient(135deg, var(--navy-dark) 0%, #6339B5 100%);
+  color: #fff;
+  border-bottom: none;
+  padding: 18px 24px 14px;
+}
+.pitch-modal-header .modal-title {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+  color: #fff;
+}
+.pitch-modal-lead-name {
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.7);
+  margin-top: 3px;
+}
+
+/* Modal body */
+.pitch-modal-body {
+  min-height: 260px;
+  padding: 24px;
+  background: #FAFBFD;
+}
+
+/* Loading spinner block */
+.pitch-spinner-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  gap: 16px;
+}
+.pitch-spinner {
+  width: 2.4rem;
+  height: 2.4rem;
+  color: #6339B5;
+  border-width: 3px;
+}
+.pitch-spinner-text {
+  font-size: 13.5px;
+  color: var(--text-muted);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+/* Pitch output area */
+.pitch-output {
+  background: #fff;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  padding: 20px 24px;
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--text-dark);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Error state inside output */
+.pitch-error {
+  color: #B23434;
+  background: #FBD7D7;
+  border: 1px solid #f5c2c2;
+  border-radius: 8px;
+  padding: 14px 16px;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+/* Modal footer */
+.pitch-modal-footer {
+  background: var(--navy-dark);
+  border-top: none;
+  padding: 12px 20px;
+  gap: 8px;
+}
+.pitch-modal-footer .btn-outline-secondary {
+  color: rgba(255,255,255,0.85);
+  border-color: rgba(255,255,255,0.3);
+}
+.pitch-modal-footer .btn-outline-secondary:hover {
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+}
+.pitch-modal-footer .btn-outline-primary {
+  color: #a78ee8;
+  border-color: #a78ee8;
+}
+.pitch-modal-footer .btn-outline-primary:hover {
+  background: rgba(167,142,232,0.15);
+  color: #c3adff;
+}
+.pitch-modal-footer .btn-outline-light {
+  color: rgba(255,255,255,0.6);
+  border-color: rgba(255,255,255,0.2);
+}
+.pitch-modal-footer .btn-outline-light:hover {
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+}
+
+/* ============================================================
+   AI SETTINGS PAGE
+   ============================================================ */
+
+/* Sidebar link highlight for AI Settings */
+.nav-ai-settings {
+  border-top: 1px solid rgba(255,255,255,0.12);
+  margin-top: 10px;
+  padding-top: 12px !important;
+}
+
+/* Settings card */
+.ai-settings-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  overflow: hidden;
+  height: 100%;
+}
+.ai-settings-card-header {
+  background: linear-gradient(135deg, var(--navy-dark) 0%, #6339B5 100%);
+  color: #fff;
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  padding: 14px 20px;
+  letter-spacing: 0.02em;
+}
+.ai-settings-card-body {
+  padding: 22px 20px;
+}
+
+/* Status banner */
+.ai-status-badge {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.ai-status-connected {
+  background: #D8F3DD;
+  color: #1E7A34;
+  border: 1px solid #a8dcb4;
+}
+.ai-status-unconfigured {
+  background: #FBD7D7;
+  color: #B23434;
+  border: 1px solid #f5b8b8;
+}
+.ai-status-updated {
+  font-weight: 400;
+  font-size: 12px;
+  color: inherit;
+  opacity: 0.75;
+}
+
+/* Test connection result states */
+.ai-test-running,
+.ai-test-success,
+.ai-test-fail {
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+}
+.ai-test-running {
+  background: #EEF1F8;
+  color: var(--text-muted);
+  border: 1px solid var(--border-soft);
+}
+.ai-test-success {
+  background: #D8F3DD;
+  color: #1E7A34;
+  border: 1px solid #a8dcb4;
+}
+.ai-test-fail {
+  background: #FBD7D7;
+  color: #B23434;
+  border: 1px solid #f5b8b8;
+}
+
+/* Help card */
+.ai-help-body { font-size: 13.5px; }
+.ai-help-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ai-help-list li { line-height: 1.5; }
+
+/* Model guide table */
+.ai-model-info { font-size: 13px; }
+.ai-model-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.ai-model-row:last-child { border-bottom: none; }
+.ai-model-name { font-weight: 600; color: var(--navy); }
+.ai-model-desc { color: var(--text-muted); }
+
+/* Welcome / Missing key modals */
+.ai-welcome-icon {
+  width: 56px;
+  height: 56px;
+  background: linear-gradient(135deg, var(--navy-dark) 0%, #6339B5 100%);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
+  font-size: 22px;
+  color: #fff;
+}
+.ai-welcome-icon-warn {
+  background: linear-gradient(135deg, #B23434 0%, #E8A33D 100%);
+}
+
+/* Utility: purple text for help icons */
+.text-purple { color: #6339B5; }

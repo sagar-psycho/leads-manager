@@ -42,15 +42,29 @@ async function loadLeadsView() {
   await refreshActiveMembers();
   buildLeadFilterUI();
 
-  let query = leadsRef;
+  // Sort by slNo descending so the highest (newest) serial number is always
+  // first. Firestore returns documents in this order server-side, so there is
+  // no flash of wrong order and no client-side re-sort is required.
+  //
+  // Admin / Super Admin  →  leadsRef.orderBy("slNo", "desc")
+  //   Single-field index — Firestore creates it automatically.
+  //
+  // Member               →  where("assignedTo") + orderBy("slNo", "desc")
+  //   Requires a composite index. Defined in firestore.indexes.json.
+  //   If the index is not yet built, Firestore will print a direct
+  //   creation link in the browser console on the first run.
+  let query = leadsRef.orderBy("slNo", "desc");
   if (CURRENT_USER.role === "member") {
-    query = leadsRef.where("assignedTo", "==", CURRENT_USER.uid);
+    query = leadsRef
+      .where("assignedTo", "==", CURRENT_USER.uid)
+      .orderBy("slNo", "desc");
   }
 
   query.onSnapshot((snap) => {
     ALL_LEADS = [];
     snap.forEach((doc) => ALL_LEADS.push({ id: doc.id, ...doc.data() }));
-    ALL_LEADS.sort((a, b) => (b.slNo || 0) - (a.slNo || 0));
+    // Firestore already returns docs in slNo desc order.
+    // No client-side sort needed.
     renderLeadsTable();
     checkReminders(); // re-evaluate whenever data changes
   }, (err) => console.error("Leads snapshot error:", err));
@@ -251,7 +265,7 @@ function renderLeadsTable() {
   }
 
   const canEditDelete = CURRENT_USER.role === "superadmin";
-
+console.log(rows);
   tbody.innerHTML = rows.map((l) => {
     const created = l.createdAt ? l.createdAt.toDate() : new Date();
     const uncontactedOverdue = isUncontactedOverdue(l);
@@ -271,6 +285,7 @@ function renderLeadsTable() {
       <td class="text-nowrap">
         <button class="btn btn-sm btn-primary" onclick="openStatusModal('${l.id}')"><i class="bi bi-pencil-square"></i> Update</button>
         <button class="btn btn-sm btn-outline-secondary" onclick="openHistoryModal('${l.id}')"><i class="bi bi-clock-history"></i></button>
+        <button class="btn btn-sm btn-ai-pitch" onclick="openSalesPitchModal('${l.id}')" title="AI Sales Pitch"><i class="bi bi-robot"></i> AI Pitch</button>
         ${canEditDelete ? `<button class="btn btn-sm btn-outline-danger" onclick="confirmDeleteLead('${l.id}')"><i class="bi bi-trash"></i></button>` : ""}
       </td>
     </tr>`;

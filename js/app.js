@@ -12,21 +12,15 @@ const ROLE_LABELS = {
 
 async function initApp() {
   CURRENT_USER = await requireAuth();
-
-  // Make it available globally
   window.CURRENT_USER = CURRENT_USER;
 
   document.getElementById("userName").textContent =
     CURRENT_USER.name || CURRENT_USER.email;
-
   document.getElementById("userRole").textContent =
     ROLE_LABELS[CURRENT_USER.role] || CURRENT_USER.role;
 
-  // ADD LEAD BUTTON
-  if (
-    CURRENT_USER.role === "admin" ||
-    CURRENT_USER.role === "superadmin"
-  ) {
+  // ADD LEAD BUTTON — admin / superadmin only
+  if (CURRENT_USER.role === "admin" || CURRENT_USER.role === "superadmin") {
     document.getElementById("addLeadBtnWrap").innerHTML = `
       <button class="btn btn-brand"
               data-bs-toggle="modal"
@@ -39,6 +33,9 @@ async function initApp() {
   showView("leads");
   requestNotificationPermission();
 
+  // Load AI settings first so every AI feature has the key ready
+  await loadAISettings();
+
   await loadLeadsView();
 
   if (CURRENT_USER.role === "superadmin") {
@@ -46,7 +43,11 @@ async function initApp() {
   }
 
   startReminderWatcher();
+
+  // Show first-login AI setup prompt if key not yet configured
+  await checkAISetupPrompt();
 }
+
 function buildNav() {
   const nav = document.getElementById("sideNav");
   let html = `
@@ -78,6 +79,12 @@ function buildNav() {
     </a>`;
   }
 
+  // AI Settings — visible to ALL authenticated users, no role restriction
+  html += `
+    <a href="#" class="nav-link nav-item-link nav-ai-settings" data-view="aisettings">
+      <i class="bi bi-robot"></i> AI Settings
+    </a>`;
+
   nav.innerHTML = html;
 
   document.querySelectorAll(".nav-item-link").forEach((link) => {
@@ -95,9 +102,10 @@ function showView(viewName) {
   const el = document.getElementById("view-" + viewName);
   if (el) el.classList.remove("d-none");
 
-  if (viewName === "urgent") renderUrgentActions();
+  if (viewName === "urgent")     renderUrgentActions();
   if (viewName === "myfollowups") renderMyFollowUps();
-  if (viewName === "report") renderDailyReport();
+  if (viewName === "report")     renderDailyReport();
+  if (viewName === "aisettings") renderAISettingsView();
 }
 
 function requestNotificationPermission() {
