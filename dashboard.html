@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — Abra Sales CRM</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <div class="app-shell">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="auth-brand-mark">AL</div>
+        <div>
+          <div class="sidebar-brand-title">Abra Logistics</div>
+          <div class="sidebar-brand-sub">Sales CRM</div>
+        </div>
+      </div>
+
+      <nav id="sideNav" class="sidebar-nav"></nav>
+
+      <div class="sidebar-user">
+        <div class="sidebar-user-name" id="userName">—</div>
+        <div class="sidebar-user-role" id="userRole">—</div>
+        <button id="logoutBtn" class="btn btn-sm btn-outline-light w-100 mt-2">
+          <i class="bi bi-box-arrow-right"></i> Sign out
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main content -->
+    <main class="main-content">
+
+      <!-- LEADS VIEW -->
+      <section id="view-leads" class="view-section">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+          <div>
+            <h1 class="page-title">Leads</h1>
+            <p class="page-subtitle">Raw leads for Abra Logistics — contact, update status, and log follow-ups.</p>
+          </div>
+          <div id="addLeadBtnWrap"></div>
+        </div>
+
+        <div id="leadFilters"></div>
+
+        <div class="table-card">
+          <div class="table-responsive">
+            <table class="table align-middle table-hover mb-0">
+              <thead>
+                <tr>
+                  <th>Sl.No</th>
+                  <th>Date &amp; Time</th>
+                  <th>Full Name</th>
+                  <th>Company</th>
+                  <th>Phone</th>
+                  <th>Email</th>
+                  <th>Service Needed</th>
+                  <th>Assigned To</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="leadsTableBody">
+                <tr><td colspan="10" class="text-center py-4 text-muted">Loading leads...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- MY FOLLOW-UPS VIEW (Member) -->
+      <section id="view-myfollowups" class="view-section d-none">
+        <h1 class="page-title">My Follow-ups</h1>
+        <p class="page-subtitle">Soonest callbacks first — Busy (1 hr) and Not Picking Call (4 hr) reminders land here automatically.</p>
+        <div id="myFollowUpsBody"></div>
+      </section>
+
+      <!-- URGENT ACTIONS VIEW (Admin / Super Admin) -->
+      <section id="view-urgent" class="view-section d-none">
+        <h1 class="page-title">Urgent Actions</h1>
+        <p class="page-subtitle">Leads still "Not Open" more than 30 minutes after creation.</p>
+        <div id="urgentActionsBody"></div>
+      </section>
+
+      <!-- DAILY REPORT VIEW (Admin / Super Admin) -->
+      <section id="view-report" class="view-section d-none">
+        <h1 class="page-title">Daily Report</h1>
+        <p class="page-subtitle">A ready-to-send summary of lead activity for any day.</p>
+
+        <div class="row g-2 align-items-end mb-3">
+          <div class="col-6 col-md-3">
+            <label class="form-label small mb-1">Report date</label>
+            <input type="date" id="reportDate" class="form-control form-control-sm">
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label small mb-1">Manager name</label>
+            <input type="text" id="reportManagerName" class="form-control form-control-sm" placeholder="e.g. Sri" value="Sri">
+          </div>
+          <div class="col-6 col-md-3">
+            <button class="btn btn-sm btn-brand" onclick="renderDailyReport()">
+              <i class="bi bi-arrow-repeat"></i> Generate
+            </button>
+          </div>
+        </div>
+
+        <div class="table-card p-3 mb-3">
+          <div id="reportStatsGrid" class="row g-2"></div>
+        </div>
+
+        <div class="table-card p-3">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="mb-0">Message preview</h6>
+            <div>
+              <button class="btn btn-sm btn-outline-secondary" onclick="copyReportMessage()">
+                <i class="bi bi-clipboard"></i> Copy
+              </button>
+              <button class="btn btn-sm btn-success" onclick="shareReportOnWhatsApp()">
+                <i class="bi bi-whatsapp"></i> Share on WhatsApp
+              </button>
+            </div>
+          </div>
+          <pre id="reportMessageBox" class="report-message-box"></pre>
+        </div>
+      </section>
+
+      <!-- MANAGE TEAM VIEW (Super Admin) -->
+      <section id="view-users" class="view-section d-none">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+          <div>
+            <h1 class="page-title">Manage Team</h1>
+            <p class="page-subtitle">Only accounts added here can sign in to the CRM.</p>
+          </div>
+          <button class="btn btn-brand" data-bs-toggle="modal" data-bs-target="#addUserModal">
+            <i class="bi bi-person-plus"></i> Add Team Member
+          </button>
+        </div>
+
+        <div class="table-card">
+          <div class="table-responsive">
+            <table class="table align-middle table-hover mb-0">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="usersTableBody">
+                <tr><td colspan="5" class="text-center py-4 text-muted">Loading team...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- TOASTS -->
+  <div id="toastContainer" class="toast-container position-fixed bottom-0 end-0 p-3"></div>
+
+  <!-- MODAL: Add Lead -->
+  <div class="modal fade" id="addLeadModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <form id="addLeadForm">
+          <div class="modal-header">
+            <h5 class="modal-title">Add New Lead</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label">What service you need</label>
+              <input type="text" class="form-control" id="leadService" required placeholder="e.g. Air freight, Sea freight...">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Full name</label>
+              <input type="text" class="form-control" id="leadFullName" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Phone number</label>
+              <input type="tel" class="form-control" id="leadPhone" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Email</label>
+              <input type="email" class="form-control" id="leadEmail">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Company name</label>
+              <input type="text" class="form-control" id="leadCompany">
+            </div>
+            <p class="small text-muted mb-0"><i class="bi bi-info-circle"></i> Sl.No and timestamp are generated automatically. The lead will be auto-assigned to the next sales member in rotation.</p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" id="addLeadSubmitBtn" class="btn btn-brand">Add Lead</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Update Status -->
+  <div class="modal fade" id="statusModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <form id="statusUpdateForm">
+          <div class="modal-header">
+            <h5 class="modal-title">Update Status — <span id="statusModalLeadName"></span></h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label">Status</label>
+              <select id="statusSelect" class="form-select"></select>
+            </div>
+            <div class="mb-2">
+              <label class="form-label">Note / Call summary</label>
+              <textarea id="statusNote" class="form-control" rows="3" placeholder="What was discussed with the customer..."></textarea>
+            </div>
+            <p class="small text-muted mb-0"><i class="bi bi-info-circle"></i> Busy → reminder in 1 hr. Not Picking Call → reminder in 4 hrs.</p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-brand">Save Update</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: History -->
+  <div class="modal fade" id="historyModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Contact History — <span id="historyModalLeadName"></span></h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body" id="historyModalBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Add User (Super Admin) -->
+  <div class="modal fade" id="addUserModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <form id="addUserForm">
+          <div class="modal-header">
+            <h5 class="modal-title">Add Team Member</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label">Full name</label>
+              <input type="text" class="form-control" id="newUserName" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Email</label>
+              <input type="email" class="form-control" id="newUserEmail" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Temporary password</label>
+              <input type="password" class="form-control" id="newUserPassword" minlength="6" required>
+              <div class="form-text">They can reset this later via "Forgot password".</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Role</label>
+              <select id="newUserRole" class="form-select" required>
+                <option value="member">Sales Member</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" id="addUserSubmitBtn" class="btn btn-brand">Add Team Member</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="js/firebase-config.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/leads.js"></script>
+  <script src="js/users.js"></script>
+  <script src="js/report.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    // Reveal "Add Lead" button only for Admin / Super Admin, after role is known
+    const addLeadObserver = setInterval(() => {
+      if (window.CURRENT_USER) {
+        clearInterval(addLeadObserver);
+        if (CURRENT_USER.role === "admin" || CURRENT_USER.role === "superadmin") {
+          document.getElementById("addLeadBtnWrap").innerHTML = `
+            <button class="btn btn-brand" data-bs-toggle="modal" data-bs-target="#addLeadModal">
+              <i class="bi bi-plus-lg"></i> Add Lead
+            </button>`;
+        }
+      }
+    }, 150);
+  </script>
+</body>
+</html>

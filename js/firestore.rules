@@ -1,0 +1,70 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function myUserDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function myRole() {
+      return isSignedIn() && myUserDoc().data.active == true ? myUserDoc().data.role : null;
+    }
+
+    function isSuperAdmin() { return isSignedIn() && myRole() == 'superadmin'; }
+    function isAdmin()      { return isSignedIn() && myRole() == 'admin'; }
+    function isMember()     { return isSignedIn() && myRole() == 'member'; }
+    function isStaff()      { return isSuperAdmin() || isAdmin(); }
+
+    // ---------------- USERS ----------------
+    match /users/{userId} {
+      // Anyone signed-in and provisioned can read the team list (needed for dropdowns/assignment names)
+      allow read: if isSignedIn() && myUserDoc().data.active == true;
+
+      // Only Super Admin can create/update/delete team member records
+      allow create: if isSuperAdmin();
+      allow update: if isSuperAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // ---------------- LEADS ----------------
+    match /leads/{leadId} {
+      allow read: if isStaff() || (isMember() && resource.data.assignedTo == request.auth.uid);
+
+      // Only Admin / Super Admin can create new leads
+      allow create: if isStaff();
+
+      // Only Super Admin may edit full lead details or delete
+      allow delete: if isSuperAdmin();
+
+      // Super Admin: full edit. Admin: no edit. Member: may only touch status/history/lastContactedAt/nextFollowUpAt on their own lead.
+      allow update: if isSuperAdmin() ||
+        (isMember() &&
+         resource.data.assignedTo == request.auth.uid &&
+         request.resource.data.assignedTo == resource.data.assignedTo &&
+         request.resource.data.fullName == resource.data.fullName &&
+         request.resource.data.phoneNumber == resource.data.phoneNumber &&
+         request.resource.data.email == resource.data.email &&
+         request.resource.data.companyName == resource.data.companyName &&
+         request.resource.data.serviceNeeded == resource.data.serviceNeeded &&
+         request.resource.data.slNo == resource.data.slNo);
+    }
+
+    // ---------------- META (counters, round robin) ----------------
+    match /meta/{docId} {
+      allow read: if isStaff();
+      allow write: if isStaff();
+    }
+
+    // ---------------- AUDIT TRAIL for deleted leads ----------------
+    match /deletedLeadsAudit/{docId} {
+      allow read: if isSuperAdmin();
+      allow create: if isSuperAdmin();
+      allow update, delete: if false;
+    }
+  }
+}
