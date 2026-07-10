@@ -80,10 +80,14 @@
         <div id="myFollowUpsBody"></div>
       </section>
 
-      <!-- URGENT ACTIONS VIEW (Admin / Super Admin) -->
+      <!-- URGENT ACTIONS VIEW (All roles — content is role-branched in leads.js) -->
       <section id="view-urgent" class="view-section d-none">
-        <h1 class="page-title">Urgent Actions</h1>
-        <p class="page-subtitle">Leads still "Not Open" more than 30 minutes after creation.</p>
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+          <div>
+            <h1 class="page-title" id="urgentViewTitle">Urgent Actions</h1>
+            <p class="page-subtitle" id="urgentViewSubtitle">Leads that need immediate attention.</p>
+          </div>
+        </div>
         <div id="urgentActionsBody"></div>
       </section>
 

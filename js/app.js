@@ -50,22 +50,29 @@ async function initApp() {
 
 function buildNav() {
   const nav = document.getElementById("sideNav");
+  const isMember = CURRENT_USER.role === "member";
+
   let html = `
     <a href="#" class="nav-link nav-item-link active" data-view="leads">
       <i class="bi bi-list-task"></i> Leads
     </a>`;
 
-  if (CURRENT_USER.role === "member") {
+  if (isMember) {
     html += `
     <a href="#" class="nav-link nav-item-link" data-view="myfollowups">
       <i class="bi bi-clock-history"></i> Follow-ups
+    </a>
+    <a href="#" class="nav-link nav-item-link" data-view="urgent">
+      <i class="bi bi-exclamation-triangle"></i>
+      My Urgent Actions
+      <span id="urgentBadge" class="urgent-nav-badge d-none"></span>
     </a>`;
-  }
-
-  if (CURRENT_USER.role === "admin" || CURRENT_USER.role === "superadmin") {
+  } else {
     html += `
     <a href="#" class="nav-link nav-item-link" data-view="urgent">
-      <i class="bi bi-exclamation-triangle"></i> Urgent Actions
+      <i class="bi bi-exclamation-triangle"></i>
+      Urgent Actions
+      <span id="urgentBadge" class="urgent-nav-badge d-none"></span>
     </a>
     <a href="#" class="nav-link nav-item-link" data-view="report">
       <i class="bi bi-file-earmark-text"></i> Daily Report
@@ -102,10 +109,20 @@ function showView(viewName) {
   const el = document.getElementById("view-" + viewName);
   if (el) el.classList.remove("d-none");
 
-  if (viewName === "urgent")     renderUrgentActions();
+  if (viewName === "urgent") {
+    // Set role-specific title and subtitle before rendering
+    const isMember = CURRENT_USER.role === "member";
+    const titleEl    = document.getElementById("urgentViewTitle");
+    const subtitleEl = document.getElementById("urgentViewSubtitle");
+    if (titleEl)    titleEl.textContent    = isMember ? "My Urgent Actions" : "Urgent Actions";
+    if (subtitleEl) subtitleEl.textContent = isMember
+      ? "Your leads that need immediate attention."
+      : "All team leads that need immediate attention — sorted by most overdue first.";
+    renderUrgentActions();
+  }
   if (viewName === "myfollowups") renderMyFollowUps();
-  if (viewName === "report")     renderDailyReport();
-  if (viewName === "aisettings") renderAISettingsView();
+  if (viewName === "report")      renderDailyReport();
+  if (viewName === "aisettings")  renderAISettingsView();
 }
 
 function requestNotificationPermission() {

@@ -465,3 +465,167 @@ h1, h2, h3, .auth-brand-title, .sidebar-brand-title {
 
 /* Utility: purple text for help icons */
 .text-purple { color: #6339B5; }
+
+/* ============================================================
+   URGENT ACTIONS v2 — role-based cards with priority colours
+   ============================================================ */
+
+/* ── Sidebar badge ─────────────────────────────────────────── */
+.urgent-nav-badge {
+  margin-left: auto;
+  background: #E8A33D;
+  color: var(--navy-dark);
+  font-size: 10.5px;
+  font-weight: 700;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  line-height: 1;
+}
+
+/* ── Empty state ───────────────────────────────────────────── */
+.urgent-empty {
+  text-align: center;
+  padding: 56px 24px;
+  background: var(--card-bg);
+  border-radius: 12px;
+  border: 1px solid var(--border-soft);
+}
+.urgent-empty-icon  { font-size: 48px; line-height: 1; margin-bottom: 12px; }
+.urgent-empty-title { font-family: 'Space Grotesk', sans-serif; font-size: 18px; font-weight: 700; color: var(--navy); margin-bottom: 6px; }
+.urgent-empty-sub   { font-size: 13.5px; color: var(--text-muted); }
+
+/* ── Card base ─────────────────────────────────────────────── */
+.urgent-card-v2 {
+  display: flex;
+  background: var(--card-bg);
+  border-radius: 12px;
+  border: 1px solid var(--border-soft);
+  overflow: hidden;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 4px rgba(15,44,70,0.06);
+  transition: box-shadow 0.15s;
+}
+.urgent-card-v2:hover {
+  box-shadow: 0 4px 16px rgba(15,44,70,0.12);
+}
+
+/* ── Priority colour bar (left stripe) ────────────────────── */
+.urgent-card-priority-bar {
+  width: 5px;
+  flex-shrink: 0;
+}
+.urgent-critical .urgent-card-priority-bar { background: #9B1C1C; }
+.urgent-high     .urgent-card-priority-bar { background: #C05621; }
+.urgent-medium   .urgent-card-priority-bar { background: #B7791F; }
+
+/* ── Card inner body ───────────────────────────────────────── */
+.urgent-card-body {
+  flex: 1;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ── Top row: sl.no + priority badge  |  overdue pill ──────── */
+.urgent-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.urgent-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.urgent-sl {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Priority badges */
+.urgent-priority-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.urgent-critical-badge { background: #FDE8E8; color: #9B1C1C; border: 1px solid #FBBDBD; }
+.urgent-high-badge     { background: #FEECDC; color: #C05621; border: 1px solid #FDBA8C; }
+.urgent-medium-badge   { background: #FDF6B2; color: #8E4B10; border: 1px solid #FCE96A; }
+
+/* Overdue pills */
+.urgent-overdue-pill {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.urgent-critical-pill { background: #9B1C1C; color: #fff; }
+.urgent-high-pill     { background: #C05621; color: #fff; }
+.urgent-medium-pill   { background: #B7791F; color: #fff; }
+
+/* ── Name / company ────────────────────────────────────────── */
+.urgent-card-info { line-height: 1.35; }
+.urgent-name    { font-size: 15px; font-weight: 700; color: var(--text-dark); }
+.urgent-company { font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }
+
+/* ── Detail chips row ──────────────────────────────────────── */
+.urgent-card-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.urgent-detail-item {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.urgent-detail-item i { font-size: 11px; }
+
+/* ── Action buttons row ────────────────────────────────────── */
+.urgent-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-soft);
+}
+
+/* WhatsApp button */
+.btn-whatsapp {
+  background: #25D366;
+  border-color: #25D366;
+  color: #fff;
+  font-weight: 600;
+}
+.btn-whatsapp:hover,
+.btn-whatsapp:focus {
+  background: #1ebe5d;
+  border-color: #1ebe5d;
+  color: #fff;
+}
+
+/* ── Responsive: stack on small screens ────────────────────── */
+@media (max-width: 600px) {
+  .urgent-card-top    { flex-direction: column; align-items: flex-start; }
+  .urgent-card-actions .btn { font-size: 12px; padding: 4px 8px; }
+}

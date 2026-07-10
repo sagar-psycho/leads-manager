@@ -293,11 +293,9 @@ console.log(rows);
 }
 
 function isUncontactedOverdue(lead) {
-  if (lead.status !== "Not Open") return false;
-  if (!lead.createdAt) return false;
-  const created = lead.createdAt.toDate();
-  const diffMin = (Date.now() - created.getTime()) / 60000;
-  return diffMin >= UNCONTACTED_ALERT_MINUTES;
+  // Kept for backwards compatibility (row highlighting in leads table).
+  // Delegates to the new overdueMinutes helper.
+  return overdueMinutes(lead) > 0;
 }
 
 function isFollowUpDue(lead) {
@@ -305,27 +303,225 @@ function isFollowUpDue(lead) {
   return lead.nextFollowUpAt.toDate().getTime() <= Date.now();
 }
 
-// ---------------- URGENT ACTIONS (Admin / Super Admin) ----------------
+// ── Overdue helpers ───────────────────────────────────────────────────────────
+
+/**
+ * Returns total minutes a lead has been overdue (0 if not overdue).
+ * A lead is urgent when:
+ *   (a) status === "Not Open" AND createdAt > UNCONTACTED_ALERT_MINUTES ago, OR
+ *   (b) nextFollowUpAt has passed.
+ */
+function overdueMinutes(lead) {
+  const now = Date.now();
+  let maxOverdue = 0;
+
+  // Rule (a): uncontacted "Not Open" lead
+  if (lead.status === "Not Open" && lead.createdAt) {
+    const ageMin = (now - lead.createdAt.toMillis()) / 60000;
+    if (ageMin >= UNCONTACTED_ALERT_MINUTES) {
+      maxOverdue = Math.max(maxOverdue, Math.floor(ageMin - UNCONTACTED_ALERT_MINUTES));
+    }
+  }
+
+  // Rule (b): missed follow-up reminder
+  if (lead.nextFollowUpAt) {
+    const passedMin = (now - lead.nextFollowUpAt.toMillis()) / 60000;
+    if (passedMin > 0) {
+      maxOverdue = Math.max(maxOverdue, Math.floor(passedMin));
+    }
+  }
+
+  return maxOverdue;
+}
+
+/** True when the lead has any urgency (used for row highlighting etc.) */
+function isUrgentLead(lead) {
+  return overdueMinutes(lead) > 0;
+}
+
+/**
+ * Returns priority level string and CSS class based on overdue duration.
+ *   > 120 min  → Critical  (dark red)
+ *   60–120 min → High      (orange)
+ *   0–60 min   → Medium    (yellow)
+ */
+function urgentPriority(overdueMin) {
+  if (overdueMin > 120) return { label: "Critical",  cls: "urgent-critical" };
+  if (overdueMin >= 60)  return { label: "High",      cls: "urgent-high"     };
+  return                        { label: "Medium",    cls: "urgent-medium"   };
+}
+
+/** Human-readable overdue label, e.g. "2 hr 15 min" */
+function formatOverdue(overdueMin) {
+  if (overdueMin < 60) return `${overdueMin} min`;
+  const h = Math.floor(overdueMin / 60);
+  const m = overdueMin % 60;
+  return m > 0 ? `${h} hr ${m} min` : `${h} hr`;
+}
+
+// ── WhatsApp phone normaliser (shared) ────────────────────────────────────────
+function normalisePhone(raw) {
+  let phone = (raw || "").replace(/[\s\-().+]/g, "");
+  if (phone.startsWith("0")) phone = "91" + phone.slice(1);
+  return /^\d{10,15}$/.test(phone) ? phone : null;
+}
+
+// ── Urgent Actions — role-branching entry point ───────────────────────────────
 function renderUrgentActions() {
   const container = document.getElementById("urgentActionsBody");
   if (!container) return;
 
-  const urgent = ALL_LEADS.filter((l) => isUncontactedOverdue(l));
+  if (CURRENT_USER.role === "member") {
+    _renderUrgentMember(container);
+  } else {
+    _renderUrgentStaff(container);
+  }
+}
+
+// ── STAFF view (Admin / Super Admin) — full team ──────────────────────────────
+function _renderUrgentStaff(container) {
+  // Collect all urgent leads with their overdue minutes, sorted most overdue first
+  const urgent = ALL_LEADS
+    .map(l => ({ lead: l, min: overdueMinutes(l) }))
+    .filter(x => x.min > 0)
+    .sort((a, b) => b.min - a.min);
+
   if (urgent.length === 0) {
-    container.innerHTML = `<p class="text-muted">No overdue leads right now. 🎉</p>`;
+    container.innerHTML = `
+      <div class="urgent-empty">
+        <div class="urgent-empty-icon">🎉</div>
+        <div class="urgent-empty-title">Great Job!</div>
+        <div class="urgent-empty-sub">No urgent leads right now. All leads are being attended to.</div>
+      </div>`;
     return;
   }
 
-  container.innerHTML = urgent.map((l) => {
-    const created = l.createdAt.toDate();
-    const overdueMin = Math.floor((Date.now() - created.getTime()) / 60000) - UNCONTACTED_ALERT_MINUTES;
+  container.innerHTML = urgent.map(({ lead: l, min }) => {
+    const { label, cls } = urgentPriority(min);
+    const phone = normalisePhone(l.phoneNumber);
     return `
-    <div class="urgent-card">
-      <div>
-        <strong>${escapeHtml(l.fullName)}</strong> (${escapeHtml(l.companyName || "-")})
-        <div class="small text-muted">Assigned to ${escapeHtml(l.assignedToName)} · Sl.No ${l.slNo}</div>
+    <div class="urgent-card-v2 ${cls}">
+      <div class="urgent-card-priority-bar"></div>
+      <div class="urgent-card-body">
+
+        <div class="urgent-card-top">
+          <div class="urgent-card-meta">
+            <span class="urgent-sl">Sl.No ${l.slNo}</span>
+            <span class="urgent-priority-badge ${cls}-badge">${label}</span>
+          </div>
+          <div class="urgent-overdue-pill ${cls}-pill">
+            <i class="bi bi-alarm-fill me-1"></i>Overdue ${formatOverdue(min)}
+          </div>
+        </div>
+
+        <div class="urgent-card-info">
+          <div class="urgent-name">${escapeHtml(l.fullName)}</div>
+          <div class="urgent-company">${escapeHtml(l.companyName || "—")}</div>
+        </div>
+
+        <div class="urgent-card-details">
+          <span class="urgent-detail-item">
+            <i class="bi bi-person-fill"></i>${escapeHtml(l.assignedToName || "Unassigned")}
+          </span>
+          <span class="urgent-detail-item">
+            <i class="bi bi-telephone-fill"></i>${escapeHtml(l.phoneNumber || "—")}
+          </span>
+          <span class="urgent-detail-item">
+            <span class="status-badge ${STATUS_BADGE_CLASS[l.status] || ""}">${l.status}</span>
+          </span>
+        </div>
+
+        <div class="urgent-card-actions">
+          ${phone ? `
+          <a href="tel:${phone}" class="btn btn-sm btn-success">
+            <i class="bi bi-telephone-fill"></i> Call
+          </a>` : ""}
+          <button class="btn btn-sm btn-primary" onclick="openStatusModal('${l.id}')">
+            <i class="bi bi-pencil-square"></i> Update
+          </button>
+          <button class="btn btn-sm btn-ai-pitch" onclick="openSalesPitchModal('${l.id}')">
+            <i class="bi bi-robot"></i> AI Pitch
+          </button>
+          ${phone ? `
+          <a href="https://wa.me/${phone}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-whatsapp">
+            <i class="bi bi-whatsapp"></i> WhatsApp
+          </a>` : ""}
+          <button class="btn btn-sm btn-outline-secondary" onclick="openHistoryModal('${l.id}')">
+            <i class="bi bi-clock-history"></i> History
+          </button>
+        </div>
+
       </div>
-      <span class="badge bg-danger">${overdueMin} min overdue</span>
+    </div>`;
+  }).join("");
+}
+
+// ── MEMBER view — only their own urgent leads ─────────────────────────────────
+function _renderUrgentMember(container) {
+  const urgent = ALL_LEADS
+    .filter(l => l.assignedTo === CURRENT_USER.uid)   // safety: members only see their own
+    .map(l => ({ lead: l, min: overdueMinutes(l) }))
+    .filter(x => x.min > 0)
+    .sort((a, b) => b.min - a.min);
+
+  if (urgent.length === 0) {
+    container.innerHTML = `
+      <div class="urgent-empty">
+        <div class="urgent-empty-icon">🎉</div>
+        <div class="urgent-empty-title">Great Job!</div>
+        <div class="urgent-empty-sub">No urgent leads assigned to you. Keep it up!</div>
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = urgent.map(({ lead: l, min }) => {
+    const { label, cls } = urgentPriority(min);
+    const phone = normalisePhone(l.phoneNumber);
+    return `
+    <div class="urgent-card-v2 ${cls}">
+      <div class="urgent-card-priority-bar"></div>
+      <div class="urgent-card-body">
+
+        <div class="urgent-card-top">
+          <div class="urgent-card-meta">
+            <span class="urgent-sl">Sl.No ${l.slNo}</span>
+            <span class="urgent-priority-badge ${cls}-badge">${label}</span>
+          </div>
+          <div class="urgent-overdue-pill ${cls}-pill">
+            <i class="bi bi-alarm-fill me-1"></i>Overdue ${formatOverdue(min)}
+          </div>
+        </div>
+
+        <div class="urgent-card-info">
+          <div class="urgent-name">${escapeHtml(l.fullName)}</div>
+          <div class="urgent-company">${escapeHtml(l.companyName || "—")}</div>
+        </div>
+
+        <div class="urgent-card-details">
+          ${phone ? `<span class="urgent-detail-item"><i class="bi bi-telephone-fill"></i>${escapeHtml(l.phoneNumber)}</span>` : ""}
+          <span class="urgent-detail-item">
+            <span class="status-badge ${STATUS_BADGE_CLASS[l.status] || ""}">${l.status}</span>
+          </span>
+        </div>
+
+        <div class="urgent-card-actions">
+          ${phone ? `
+          <a href="tel:${phone}" class="btn btn-sm btn-success">
+            <i class="bi bi-telephone-fill"></i> Call
+          </a>` : ""}
+          <button class="btn btn-sm btn-primary" onclick="openStatusModal('${l.id}')">
+            <i class="bi bi-pencil-square"></i> Update
+          </button>
+          <button class="btn btn-sm btn-ai-pitch" onclick="openSalesPitchModal('${l.id}')">
+            <i class="bi bi-robot"></i> AI Pitch
+          </button>
+          ${phone ? `
+          <a href="https://wa.me/${phone}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-whatsapp">
+            <i class="bi bi-whatsapp"></i> WhatsApp
+          </a>` : ""}
+        </div>
+
+      </div>
     </div>`;
   }).join("");
 }
@@ -374,31 +570,55 @@ function checkReminders() {
     if (isUncontactedOverdue(l) && !toastedLeadIds.has(key)) {
       toastedLeadIds.add(key);
       if (CURRENT_USER.role === "member") {
-        toast(`New lead waiting: ${l.fullName} — contact within 30 mins.`, "warning");
-        browserNotify("Lead needs contact", `${l.fullName} — ${l.phoneNumber}`);
+        // Members only get toasted for their own leads
+        if (l.assignedTo === CURRENT_USER.uid) {
+          toast(`Lead #${l.slNo} needs immediate attention — ${l.fullName}.`, "warning");
+          browserNotify("Urgent Lead", `Lead #${l.slNo} — ${l.fullName} (${l.phoneNumber})`);
+        }
       } else {
-        toast(`Overdue: ${l.fullName} assigned to ${l.assignedToName} not contacted in 30+ min.`, "danger");
+        // Admin / Super Admin see team-level notifications
+        toast(
+          `Overdue: <strong>${escapeHtml(l.fullName)}</strong> (Sl.No ${l.slNo}) — assigned to ${escapeHtml(l.assignedToName)} — ${formatOverdue(overdueMinutes(l))} overdue.`,
+          "danger"
+        );
       }
     }
 
     if (CURRENT_USER.role === "member" && isFollowUpDue(l) && !toastedLeadIds.has(key + "_followup")) {
-      toastedLeadIds.add(key + "_followup");
-      toast(`Follow-up due now: ${l.fullName} (${l.status}).`, "info");
-      browserNotify("Follow-up due", `${l.fullName} — ${l.status}`);
+      if (l.assignedTo === CURRENT_USER.uid) {
+        toastedLeadIds.add(key + "_followup");
+        toast(`Follow-up due now: ${escapeHtml(l.fullName)} (${l.status}).`, "info");
+        browserNotify("Follow-up due", `${l.fullName} — ${l.status}`);
+      }
     }
   });
 
-  if (CURRENT_USER.role !== "member") {
-    const urgentCount = ALL_LEADS.filter((l) => isUncontactedOverdue(l)).length;
-    const badge = document.getElementById("urgentBadge");
-    if (badge) {
-      if (urgentCount > 0) {
-        badge.textContent = urgentCount;
-        badge.classList.remove("d-none");
-      } else {
-        badge.classList.add("d-none");
-      }
-    }
+  // ── Update sidebar badge ────────────────────────────────────────────────────
+  const badge = document.getElementById("urgentBadge");
+  if (!badge) return;
+
+  let urgentCount = 0;
+  if (CURRENT_USER.role === "member") {
+    // Members: badge counts only their own urgent leads
+    urgentCount = ALL_LEADS.filter(
+      l => l.assignedTo === CURRENT_USER.uid && overdueMinutes(l) > 0
+    ).length;
+  } else {
+    // Admin / Super Admin: badge counts entire team
+    urgentCount = ALL_LEADS.filter(l => overdueMinutes(l) > 0).length;
+  }
+
+  if (urgentCount > 0) {
+    badge.textContent = urgentCount;
+    badge.classList.remove("d-none");
+  } else {
+    badge.classList.add("d-none");
+  }
+
+  // Also refresh the urgent view if it is currently visible
+  const urgentSection = document.getElementById("view-urgent");
+  if (urgentSection && !urgentSection.classList.contains("d-none")) {
+    renderUrgentActions();
   }
 }
 
