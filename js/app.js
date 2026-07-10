@@ -13,21 +13,40 @@ const ROLE_LABELS = {
 async function initApp() {
   CURRENT_USER = await requireAuth();
 
-  document.getElementById("userName").textContent = CURRENT_USER.name || CURRENT_USER.email;
-  document.getElementById("userRole").textContent = ROLE_LABELS[CURRENT_USER.role] || CURRENT_USER.role;
+  // Make it available globally
+  window.CURRENT_USER = CURRENT_USER;
+
+  document.getElementById("userName").textContent =
+    CURRENT_USER.name || CURRENT_USER.email;
+
+  document.getElementById("userRole").textContent =
+    ROLE_LABELS[CURRENT_USER.role] || CURRENT_USER.role;
+
+  // ADD LEAD BUTTON
+  if (
+    CURRENT_USER.role === "admin" ||
+    CURRENT_USER.role === "superadmin"
+  ) {
+    document.getElementById("addLeadBtnWrap").innerHTML = `
+      <button class="btn btn-brand"
+              data-bs-toggle="modal"
+              data-bs-target="#addLeadModal">
+        <i class="bi bi-plus-lg"></i> Add Lead
+      </button>`;
+  }
 
   buildNav();
   showView("leads");
   requestNotificationPermission();
 
-  // Kick off data loads
   await loadLeadsView();
+
   if (CURRENT_USER.role === "superadmin") {
     await loadUsersView();
   }
+
   startReminderWatcher();
 }
-
 function buildNav() {
   const nav = document.getElementById("sideNav");
   let html = `
