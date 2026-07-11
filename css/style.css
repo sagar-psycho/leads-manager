@@ -629,3 +629,150 @@ h1, h2, h3, .auth-brand-title, .sidebar-brand-title {
   .urgent-card-top    { flex-direction: column; align-items: flex-start; }
   .urgent-card-actions .btn { font-size: 12px; padding: 4px 8px; }
 }
+
+/* ============================================================
+   CRM SETTINGS PAGE
+   ============================================================ */
+
+/* Sidebar nav link */
+.nav-crm-settings {
+  border-top: 1px solid rgba(255,255,255,0.12);
+  margin-top: 6px;
+  padding-top: 10px !important;
+}
+
+/* ── Settings card ─────────────────────────────────────────── */
+.crm-settings-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.crm-settings-card-header {
+  background: linear-gradient(135deg, var(--navy) 0%, var(--steel) 100%);
+  color: #fff;
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 600;
+  font-size: 13.5px;
+  padding: 12px 18px;
+  letter-spacing: 0.02em;
+  display: flex;
+  align-items: center;
+}
+.crm-settings-card-body {
+  padding: 18px 18px 20px;
+}
+
+/* ── Working days grid ─────────────────────────────────────── */
+.crm-day-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.crm-day-chip {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  cursor: pointer;
+}
+.crm-day-chip input[type="checkbox"] { display: none; }
+.crm-day-chip span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 40px;
+  border-radius: 8px;
+  border: 1.5px solid var(--border-soft);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: #FAFBFD;
+  transition: all 0.15s;
+  user-select: none;
+}
+.crm-day-chip input:checked + span {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: var(--amber);
+}
+.crm-day-chip:hover span { border-color: var(--navy); }
+
+/* ── Toggle rows ───────────────────────────────────────────── */
+.crm-toggle-row {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.crm-toggle-row:last-child { border-bottom: none; }
+.crm-toggle-label {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-dark);
+}
+.crm-toggle-input {
+  width: 2.4em;
+  height: 1.3em;
+  cursor: pointer;
+}
+.crm-toggle-input:checked {
+  background-color: var(--navy);
+  border-color: var(--navy);
+}
+
+/* ── List rows (breaks / holidays) ────────────────────────── */
+.crm-list-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  background: #FAFBFD;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+}
+.crm-list-row input[type="text"] { flex: 1.5; min-width: 100px; }
+.crm-list-row input[type="time"],
+.crm-list-row input[type="date"] { flex: 1; min-width: 110px; }
+.crm-list-row select { flex: 1; min-width: 100px; }
+
+/* ── Responsive ────────────────────────────────────────────── */
+@media (max-width: 600px) {
+  .crm-list-row { flex-direction: column; align-items: stretch; }
+  .crm-day-chip span { width: 40px; height: 36px; font-size: 11px; }
+}
+
+/* ============================================================
+   CRM SETTINGS — read-only mode (Admin / Member)
+   ============================================================ */
+
+/* Sidebar badge — lock icon for read-only roles */
+.crm-readonly-badge {
+  background: rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.85);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.2);
+}
+
+/* Info banner at top of page for read-only roles */
+.crm-readonly-alert {
+  background: #EEF3FB;
+  border: 1px solid #C3D5F0;
+  border-left: 4px solid var(--steel);
+  color: var(--navy);
+  border-radius: 8px;
+  font-size: 13.5px;
+  padding: 12px 16px;
+}
+
+/* Disabled day chips — still look like chips, just muted */
+.crm-day-chip-ro { cursor: default; }
+.crm-day-chip-ro span { opacity: 0.75; }
+.crm-day-chip-ro input:checked + span {
+  background: var(--steel);
+  border-color: var(--steel);
+  color: #fff;
+}

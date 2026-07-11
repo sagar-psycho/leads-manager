@@ -33,7 +33,11 @@ async function initApp() {
   showView("leads");
   requestNotificationPermission();
 
-  // Load AI settings first so every AI feature has the key ready
+  // Subscribe to CRM Settings in real time (all roles — settings are applied,
+  // but the settings PAGE is only shown to Super Admin)
+  subscribeCRMSettings();
+
+  // Load personal AI settings
   await loadAISettings();
 
   await loadLeadsView();
@@ -86,6 +90,12 @@ function buildNav() {
     </a>`;
   }
 
+  // CRM Settings — visible to ALL roles; page is read-only for non-Super Admin
+  html += `
+    <a href="#" class="nav-link nav-item-link nav-crm-settings" data-view="crmsettings">
+      <i class="bi bi-gear-fill"></i> CRM Settings
+    </a>`;
+
   // AI Settings — visible to ALL authenticated users, no role restriction
   html += `
     <a href="#" class="nav-link nav-item-link nav-ai-settings" data-view="aisettings">
@@ -123,6 +133,7 @@ function showView(viewName) {
   if (viewName === "myfollowups") renderMyFollowUps();
   if (viewName === "report")      renderDailyReport();
   if (viewName === "aisettings")  renderAISettingsView();
+  if (viewName === "crmsettings") renderCRMSettingsView();
 }
 
 function requestNotificationPermission() {

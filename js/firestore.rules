@@ -90,5 +90,15 @@ service cloud.firestore {
       allow create:        if isSuperAdmin();
       allow update, delete: if false;
     }
+
+    // ── CRM SETTINGS ─────────────────────────────────────────
+    // All settings live in ONE document: crmSettings/general
+    // Read : every active authenticated user (settings are applied to their session).
+    // Write: Super Admin only — enforced both here AND in the JS layer.
+    match /crmSettings/{docId} {
+      allow read:           if isSignedIn() && myUserDoc().data.active == true;
+      allow create, update: if isSuperAdmin();
+      allow delete:         if isSuperAdmin();
+    }
   }
 }

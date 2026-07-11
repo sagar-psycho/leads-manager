@@ -14,7 +14,9 @@ const STATUS_LIST = [
   "Transporter"
 ];
 
-// Reminder delay in minutes per status (null = no auto follow-up reminder)
+// Reminder delay in minutes per status — now read from CRM Settings at runtime.
+// STATUS_REMINDER_MINUTES kept as a fallback for the very first render before
+// Firestore settings load; actual values come from getCRMSetting().
 const STATUS_REMINDER_MINUTES = {
   "Busy": 60,
   "Not Picking Call": 240
@@ -31,7 +33,7 @@ const STATUS_BADGE_CLASS = {
   "Transporter": "badge-transporter"
 };
 
-const UNCONTACTED_ALERT_MINUTES = 30;
+const UNCONTACTED_ALERT_MINUTES = 30; // fallback — overridden at runtime by getCRMSetting("leadRules.uncontactedAlertMinutes")
 
 let ALL_LEADS = [];       // full scoped dataset from snapshot
 let ACTIVE_MEMBERS = [];  // cached active member list for dropdowns
@@ -134,8 +136,14 @@ async function updateLeadStatus(leadId, newStatus, noteText) {
   const leadRef = leadsRef.doc(leadId);
   const now = firebase.firestore.Timestamp.now();
 
+  // Read reminder delays from live CRM Settings; fall back to hardcoded values
+  const reminderMap = {
+    "Busy":            (typeof getCRMSetting === "function" ? getCRMSetting("leadRules.reminderAfterMinutes") : null) || 60,
+    "Not Picking Call": 240
+  };
+
   let nextFollowUpAt = null;
-  const reminderMinutes = STATUS_REMINDER_MINUTES[newStatus];
+  const reminderMinutes = reminderMap[newStatus];
   if (reminderMinutes) {
     nextFollowUpAt = firebase.firestore.Timestamp.fromMillis(Date.now() + reminderMinutes * 60000);
   }
@@ -315,11 +323,16 @@ function overdueMinutes(lead) {
   const now = Date.now();
   let maxOverdue = 0;
 
+  // Read live from CRM Settings (falls back to module constant if settings not yet loaded)
+  const alertMin = (typeof getCRMSetting === "function"
+    ? getCRMSetting("leadRules.uncontactedAlertMinutes")
+    : null) || UNCONTACTED_ALERT_MINUTES;
+
   // Rule (a): uncontacted "Not Open" lead
   if (lead.status === "Not Open" && lead.createdAt) {
     const ageMin = (now - lead.createdAt.toMillis()) / 60000;
-    if (ageMin >= UNCONTACTED_ALERT_MINUTES) {
-      maxOverdue = Math.max(maxOverdue, Math.floor(ageMin - UNCONTACTED_ALERT_MINUTES));
+    if (ageMin >= alertMin) {
+      maxOverdue = Math.max(maxOverdue, Math.floor(ageMin - alertMin));
     }
   }
 
@@ -564,20 +577,26 @@ function startReminderWatcher() {
 }
 
 function checkReminders() {
+  // Suppress all reminders during breaks, holidays, and outside office hours
+  if (typeof shouldSuppressReminders === "function" && shouldSuppressReminders()) return;
+
+  const toastEnabled = (typeof getCRMSetting === "function"
+    ? getCRMSetting("notificationRules.toastNotifications") : true) !== false;
+  const browserEnabled = (typeof getCRMSetting === "function"
+    ? getCRMSetting("notificationRules.browserNotifications") : true) !== false;
+
   ALL_LEADS.forEach((l) => {
     const key = l.id + "_" + l.status;
 
     if (isUncontactedOverdue(l) && !toastedLeadIds.has(key)) {
       toastedLeadIds.add(key);
       if (CURRENT_USER.role === "member") {
-        // Members only get toasted for their own leads
         if (l.assignedTo === CURRENT_USER.uid) {
-          toast(`Lead #${l.slNo} needs immediate attention — ${l.fullName}.`, "warning");
-          browserNotify("Urgent Lead", `Lead #${l.slNo} — ${l.fullName} (${l.phoneNumber})`);
+          if (toastEnabled)   toast(`Lead #${l.slNo} needs immediate attention — ${l.fullName}.`, "warning");
+          if (browserEnabled) browserNotify("Urgent Lead", `Lead #${l.slNo} — ${l.fullName} (${l.phoneNumber})`);
         }
       } else {
-        // Admin / Super Admin see team-level notifications
-        toast(
+        if (toastEnabled) toast(
           `Overdue: <strong>${escapeHtml(l.fullName)}</strong> (Sl.No ${l.slNo}) — assigned to ${escapeHtml(l.assignedToName)} — ${formatOverdue(overdueMinutes(l))} overdue.`,
           "danger"
         );
@@ -587,24 +606,22 @@ function checkReminders() {
     if (CURRENT_USER.role === "member" && isFollowUpDue(l) && !toastedLeadIds.has(key + "_followup")) {
       if (l.assignedTo === CURRENT_USER.uid) {
         toastedLeadIds.add(key + "_followup");
-        toast(`Follow-up due now: ${escapeHtml(l.fullName)} (${l.status}).`, "info");
-        browserNotify("Follow-up due", `${l.fullName} — ${l.status}`);
+        if (toastEnabled)   toast(`Follow-up due now: ${escapeHtml(l.fullName)} (${l.status}).`, "info");
+        if (browserEnabled) browserNotify("Follow-up due", `${l.fullName} — ${l.status}`);
       }
     }
   });
 
-  // ── Update sidebar badge ────────────────────────────────────────────────────
+  // ── Update sidebar badge ──────────────────────────────────────────────────
   const badge = document.getElementById("urgentBadge");
   if (!badge) return;
 
   let urgentCount = 0;
   if (CURRENT_USER.role === "member") {
-    // Members: badge counts only their own urgent leads
     urgentCount = ALL_LEADS.filter(
       l => l.assignedTo === CURRENT_USER.uid && overdueMinutes(l) > 0
     ).length;
   } else {
-    // Admin / Super Admin: badge counts entire team
     urgentCount = ALL_LEADS.filter(l => overdueMinutes(l) > 0).length;
   }
 
