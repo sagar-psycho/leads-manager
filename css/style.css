@@ -776,3 +776,68 @@ h1, h2, h3, .auth-brand-title, .sidebar-brand-title {
   border-color: var(--steel);
   color: #fff;
 }
+
+/* ============================================================
+   SMART ASSIGNMENT — Pending badge & Dashboard cards
+   ============================================================ */
+
+/* Pending Assignment badge in leads table */
+.badge-pending-assignment {
+  background: #FEF3C7;
+  color: #92600A;
+  border: 1px solid #F6D860;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+/* Dashboard stat cards */
+.dash-stat-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 18px 14px;
+  text-align: center;
+  transition: box-shadow 0.15s;
+}
+.dash-stat-card:hover { box-shadow: 0 4px 16px rgba(15,44,70,0.10); }
+.dash-stat-icon { font-size: 22px; margin-bottom: 8px; }
+.dash-stat-value {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+.dash-stat-label {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+
+/* ============================================================
+   LEAVE MANAGEMENT — status badges
+   ============================================================ */
+.leave-status-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.leave-approved  { background: #D8F3DD; color: #1E7A34; }
+.leave-pending   { background: #FEF3C7; color: #92600A; }
+.leave-rejected  { background: #FBD7D7; color: #B23434; }
+
+/* ============================================================
+   AUDIT LOG — action badges
+   ============================================================ */
+.badge.audit-badge-success   { background: #D8F3DD; color: #1E7A34; }
+.badge.audit-badge-warning   { background: #FEF3C7; color: #92600A; }
+.badge.audit-badge-danger    { background: #FBD7D7; color: #B23434; }
+.badge.audit-badge-secondary { background: #E3E8EF; color: #45566B; }
+.badge.audit-badge-info      { background: #DCE8FB; color: #2A5A9C; }

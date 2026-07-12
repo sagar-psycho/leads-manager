@@ -33,12 +33,14 @@ function _defaultConfig() {
     // § 4 Holidays  (array stored under holidays key)
     holidays: [],
     // § 5-6 Lead / Follow-up Rules
-    uncontactedAlertMinutes: 30,
-    reminderAfterMinutes:    30,
-    reminderFreqMinutes:     30,
-    maxReminderCount:        5,
-    maxNotPickingAttempts:   3,
-    autoMoveNotInterested:   true,
+    uncontactedAlertMinutes:    30,
+    reminderAfterMinutes:       30,
+    reminderFreqMinutes:        30,
+    maxReminderCount:           5,
+    maxNotPickingAttempts:      3,
+    assignmentIntervalMinutes:  30,   // gradual dispatch interval
+    lunchStart:                "13:00", // half-day boundary
+    autoMoveNotInterested:      true,
     autoFollowUp:            true,
     autoReminder:            true,
     autoEscalation:          false,
@@ -329,6 +331,19 @@ function _sectionFollowUp(g, ro) {
       <input type="number" id="cfg_maxReminder" class="form-control form-control-sm"
              min="1" max="20" value="${g.maxReminderCount||5}" ${ro}>
     </div>
+    <div class="col-6">
+      <label class="form-label small fw-semibold">Assignment Interval</label>
+      <select id="cfg_assignInterval" class="form-select form-select-sm" ${ro}>
+        ${[10,15,20,30,45,60].map(m=>
+          `<option value="${m}" ${m==(g.assignmentIntervalMinutes||30)?"selected":""}>${m} min</option>`
+        ).join("")}
+      </select>
+    </div>
+    <div class="col-6">
+      <label class="form-label small fw-semibold">Lunch Start (Half-day boundary)</label>
+      <input type="time" id="cfg_lunchStart" class="form-control form-control-sm"
+             value="${g.lunchStart||'13:00'}" ${ro}>
+    </div>
   </div>`;
 }
 
@@ -469,6 +484,8 @@ async function saveAllCRMSettings() {
       reminderFreqMinutes:     parseInt(document.getElementById("cfg_reminderFreq")?.value)     || 30,
       maxReminderCount:        parseInt(document.getElementById("cfg_maxReminder")?.value)      || 5,
       maxNotPickingAttempts:   parseInt(document.getElementById("cfg_maxAttempts")?.value)      || 3,
+      assignmentIntervalMinutes: parseInt(document.getElementById("cfg_assignInterval")?.value) || 30,
+      lunchStart:              document.getElementById("cfg_lunchStart")?.value                  || "13:00",
       autoMoveNotInterested:   document.getElementById("cfg_autoMoveNI")?.checked      ?? true,
       autoFollowUp:            document.getElementById("cfg_autoFollowUp")?.checked    ?? true,
       autoReminder:            document.getElementById("cfg_autoReminder")?.checked    ?? true,

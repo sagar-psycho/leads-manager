@@ -81,54 +81,8 @@ async function refreshActiveMembers() {
 
 // ---------------- CREATE LEAD (Admin / Super Admin) ----------------
 async function createLead(formData) {
-  if (ACTIVE_MEMBERS.length === 0) {
-    throw new Error("No active sales members exist. Add a member before creating leads.");
-  }
-
-  const counterDocRef = metaRef.doc("leadCounter");
-  const roundRobinDocRef = metaRef.doc("roundRobin");
-  const newLeadRef = leadsRef.doc();
-
-  await db.runTransaction(async (t) => {
-    const counterSnap = await t.get(counterDocRef);
-    const rrSnap = await t.get(roundRobinDocRef);
-
-    const nextSlNo = (counterSnap.exists ? counterSnap.data().count : 0) + 1;
-    const lastIndex = rrSnap.exists ? rrSnap.data().lastIndex : -1;
-    const newIndex = (lastIndex + 1) % ACTIVE_MEMBERS.length;
-    const assignedMember = ACTIVE_MEMBERS[newIndex];
-
-    const now = firebase.firestore.Timestamp.now();
-
-    t.set(newLeadRef, {
-      slNo: nextSlNo,
-      serviceNeeded: formData.serviceNeeded,
-      email: formData.email,
-      fullName: formData.fullName,
-      phoneNumber: formData.phoneNumber,
-      companyName: formData.companyName,
-      status: "Not Open",
-      assignedTo: assignedMember.id,
-      assignedToName: assignedMember.name || assignedMember.email,
-      createdBy: CURRENT_USER.uid,
-      createdByName: CURRENT_USER.name || CURRENT_USER.email,
-      createdAt: now,
-      lastContactedAt: null,
-      nextFollowUpAt: null,
-      history: [
-        {
-          text: "Lead created and auto-assigned to " + (assignedMember.name || assignedMember.email),
-          statusAtTime: "Not Open",
-          updatedBy: CURRENT_USER.uid,
-          updatedByName: CURRENT_USER.name || CURRENT_USER.email,
-          timestamp: new Date().toISOString()
-        }
-      ]
-    });
-
-    t.set(counterDocRef, { count: nextSlNo }, { merge: true });
-    t.set(roundRobinDocRef, { lastIndex: newIndex }, { merge: true });
-  });
+  // Delegate to Smart Assignment engine in assignment.js
+  await smartCreateLead(formData);
 }
 
 // ---------------- UPDATE STATUS / NOTE (with history) ----------------
@@ -273,10 +227,10 @@ function renderLeadsTable() {
   }
 
   const canEditDelete = CURRENT_USER.role === "superadmin";
-console.log(rows);
   tbody.innerHTML = rows.map((l) => {
     const created = l.createdAt ? l.createdAt.toDate() : new Date();
     const uncontactedOverdue = isUncontactedOverdue(l);
+    const isPending = !!l.assignmentPending;
     return `
     <tr class="${uncontactedOverdue ? "row-urgent" : ""}">
       <td>${l.slNo}</td>
@@ -286,14 +240,18 @@ console.log(rows);
       <td>${escapeHtml(l.phoneNumber)}</td>
       <td>${escapeHtml(l.email || "-")}</td>
       <td>${escapeHtml(l.serviceNeeded || "-")}</td>
-      <td>${escapeHtml(l.assignedToName || "-")}</td>
+      <td>
+        ${isPending
+          ? `<span class="badge badge-pending-assignment"><i class="bi bi-hourglass-split me-1"></i>Pending Assignment</span>`
+          : escapeHtml(l.assignedToName || "-")}
+      </td>
       <td><span class="status-badge ${STATUS_BADGE_CLASS[l.status] || ""}">${l.status}</span>
         ${uncontactedOverdue ? '<div class="small text-danger mt-1"><i class="bi bi-alarm"></i> Overdue</div>' : ""}
       </td>
       <td class="text-nowrap">
-        <button class="btn btn-sm btn-primary" onclick="openStatusModal('${l.id}')"><i class="bi bi-pencil-square"></i> Update</button>
+        ${isPending ? "" : `<button class="btn btn-sm btn-primary" onclick="openStatusModal('${l.id}')"><i class="bi bi-pencil-square"></i> Update</button>`}
         <button class="btn btn-sm btn-outline-secondary" onclick="openHistoryModal('${l.id}')"><i class="bi bi-clock-history"></i></button>
-        <button class="btn btn-sm btn-ai-pitch" onclick="openSalesPitchModal('${l.id}')" title="AI Sales Pitch"><i class="bi bi-robot"></i> AI Pitch</button>
+        ${isPending ? "" : `<button class="btn btn-sm btn-ai-pitch" onclick="openSalesPitchModal('${l.id}')" title="AI Sales Pitch"><i class="bi bi-robot"></i> AI Pitch</button>`}
         ${canEditDelete ? `<button class="btn btn-sm btn-outline-danger" onclick="confirmDeleteLead('${l.id}')"><i class="bi bi-trash"></i></button>` : ""}
       </td>
     </tr>`;

@@ -100,5 +100,36 @@ service cloud.firestore {
       allow create, update: if isSuperAdmin();
       allow delete:         if isSuperAdmin();
     }
+
+    // ── ASSIGNMENT QUEUE ──────────────────────────────────────
+    // Holds leads waiting for assignment (outside office hours / holiday / no members).
+    // Staff (Admin/SA) create entries when creating a lead.
+    // System (SA + Admin clients) delete entries after dispatching.
+    match /assignmentQueue/{docId} {
+      allow read:           if isSignedIn() && myUserDoc().data.active == true;
+      allow create:         if isStaff();
+      allow delete:         if isStaff();
+      allow update:         if isStaff();
+    }
+
+    // ── AUDIT LOG ─────────────────────────────────────────────
+    // Append-only log of every automatic assignment action.
+    // All staff can read; system (staff clients) create entries.
+    match /auditLog/{docId} {
+      allow read:           if isStaff();
+      allow create:         if isSignedIn() && myUserDoc().data.active == true;
+      allow update, delete: if false;
+    }
+
+    // ── EMPLOYEE LEAVE ────────────────────────────────────────
+    // Super Admin + Admin: full CRUD.
+    // Member: read own leaves; create own leave requests.
+    match /leaves/{docId} {
+      allow read: if isStaff()
+        || (isMember() && resource.data.memberId == request.auth.uid);
+      allow create: if isSignedIn() && myUserDoc().data.active == true;
+      allow update: if isStaff();
+      allow delete: if isStaff();
+    }
   }
 }

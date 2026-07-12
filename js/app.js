@@ -33,8 +33,7 @@ async function initApp() {
   showView("leads");
   requestNotificationPermission();
 
-  // Subscribe to CRM Settings in real time (all roles — settings are applied,
-  // but the settings PAGE is only shown to Super Admin)
+  // Subscribe to CRM Settings in real time (all roles)
   subscribeCRMSettings();
 
   // Load personal AI settings
@@ -46,14 +45,19 @@ async function initApp() {
     await loadUsersView();
   }
 
+  // Start background watchers
   startReminderWatcher();
+  startAssignmentWatcher();          // smart assignment engine
 
-  // Show first-login AI setup prompt if key not yet configured
+  // Post-login checks
   await checkAISetupPrompt();
+  await checkHolidayWelcome();       // show welcome popup if yesterday was a holiday
 }
 
 function buildNav() {
-  const nav = document.getElementById("sideNav");
+  const nav     = document.getElementById("sideNav");
+  const isSA    = CURRENT_USER.role === "superadmin";
+  const isAdmin = CURRENT_USER.role === "admin";
   const isMember = CURRENT_USER.role === "member";
 
   let html = `
@@ -72,7 +76,11 @@ function buildNav() {
       <span id="urgentBadge" class="urgent-nav-badge d-none"></span>
     </a>`;
   } else {
+    // Admin + Super Admin
     html += `
+    <a href="#" class="nav-link nav-item-link" data-view="dashboard">
+      <i class="bi bi-speedometer2"></i> Dashboard
+    </a>
     <a href="#" class="nav-link nav-item-link" data-view="urgent">
       <i class="bi bi-exclamation-triangle"></i>
       Urgent Actions
@@ -83,20 +91,33 @@ function buildNav() {
     </a>`;
   }
 
-  if (CURRENT_USER.role === "superadmin") {
+  // Leave Management — all roles (members see own leave only)
+  html += `
+    <a href="#" class="nav-link nav-item-link" data-view="leave">
+      <i class="bi bi-calendar2-check"></i> Leave Management
+    </a>`;
+
+  if (!isMember) {
+    html += `
+    <a href="#" class="nav-link nav-item-link" data-view="auditlog">
+      <i class="bi bi-journal-text"></i> Audit Log
+    </a>`;
+  }
+
+  if (isSA) {
     html += `
     <a href="#" class="nav-link nav-item-link" data-view="users">
       <i class="bi bi-people"></i> Manage Team
     </a>`;
   }
 
-  // CRM Settings — visible to ALL roles; page is read-only for non-Super Admin
+  // CRM Settings — all roles (read-only for non-SA)
   html += `
     <a href="#" class="nav-link nav-item-link nav-crm-settings" data-view="crmsettings">
       <i class="bi bi-gear-fill"></i> CRM Settings
     </a>`;
 
-  // AI Settings — visible to ALL authenticated users, no role restriction
+  // AI Settings — all roles
   html += `
     <a href="#" class="nav-link nav-item-link nav-ai-settings" data-view="aisettings">
       <i class="bi bi-robot"></i> AI Settings
@@ -120,7 +141,6 @@ function showView(viewName) {
   if (el) el.classList.remove("d-none");
 
   if (viewName === "urgent") {
-    // Set role-specific title and subtitle before rendering
     const isMember = CURRENT_USER.role === "member";
     const titleEl    = document.getElementById("urgentViewTitle");
     const subtitleEl = document.getElementById("urgentViewSubtitle");
@@ -134,6 +154,157 @@ function showView(viewName) {
   if (viewName === "report")      renderDailyReport();
   if (viewName === "aisettings")  renderAISettingsView();
   if (viewName === "crmsettings") renderCRMSettingsView();
+  if (viewName === "leave")       loadLeaveView();
+  if (viewName === "dashboard")   renderDashboardCards();
+  if (viewName === "auditlog")    renderAuditLog();
+}
+
+// ── Dashboard Cards ───────────────────────────────────────────
+async function renderDashboardCards() {
+  const grid = document.getElementById("dashboardCardsGrid");
+  const listWrap = document.getElementById("dashboardPendingList");
+  if (!grid) return;
+
+  grid.innerHTML = `<div class="col-12 text-center text-muted py-3">
+    <span class="spinner-border spinner-border-sm me-2"></span>Loading…</div>`;
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Parallel fetches
+  const [pendingSnap, assignedSnap, leaveSnap, queueSnap] = await Promise.all([
+    leadsRef.where("assignmentPending", "==", true).get(),
+    leadsRef.where("assignedAt", ">=", firebase.firestore.Timestamp.fromDate(
+      new Date(today + "T00:00:00"))).get(),
+    leavesRef.where("date", "==", today).where("status", "==", "Approved").get(),
+    assignmentQueueRef.get()
+  ]);
+
+  const pendingCount  = pendingSnap.size;
+  const assignedToday = assignedSnap.size;
+  const onLeave       = leaveSnap.size;
+  const queueCount    = queueSnap.size;
+
+  const upcomingHols = (CRM_CONFIG.holidays || [])
+    .filter(h => h.date >= today)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(0, 3);
+
+  const workingMembers = ACTIVE_MEMBERS.length - onLeave;
+
+  const cards = [
+    { icon: "bi-hourglass-split", label: "Pending Assignment", value: pendingCount,  color: "var(--amber)" },
+    { icon: "bi-person-check",    label: "Today's Assigned",   value: assignedToday, color: "#1E7A34" },
+    { icon: "bi-calendar2-x",     label: "In Assignment Queue",value: queueCount,    color: "#B23434" },
+    { icon: "bi-person-dash",     label: "On Leave Today",     value: onLeave,       color: "#C05621" },
+    { icon: "bi-people-fill",     label: "Working Today",      value: workingMembers < 0 ? 0 : workingMembers, color: "var(--steel)" },
+    { icon: "bi-calendar-event",  label: "Upcoming Holidays",  value: upcomingHols.length, color: "#6339B5" }
+  ];
+
+  grid.innerHTML = cards.map(c => `
+    <div class="col-6 col-md-4 col-lg-2">
+      <div class="dash-stat-card">
+        <div class="dash-stat-icon" style="color:${c.color}">
+          <i class="bi ${c.icon}"></i>
+        </div>
+        <div class="dash-stat-value" style="color:${c.color}">${c.value}</div>
+        <div class="dash-stat-label">${c.label}</div>
+      </div>
+    </div>`).join("");
+
+  // Pending leads detail list
+  if (pendingCount === 0) {
+    listWrap.innerHTML = "";
+    return;
+  }
+
+  const pendingLeads = [];
+  pendingSnap.forEach(d => pendingLeads.push({ id: d.id, ...d.data() }));
+
+  listWrap.innerHTML = `
+  <div class="crm-settings-card">
+    <div class="crm-settings-card-header">
+      <i class="bi bi-hourglass-split me-2"></i>Pending Assignment Leads
+    </div>
+    <div class="table-responsive">
+      <table class="table align-middle table-hover mb-0" style="font-size:13.5px">
+        <thead>
+          <tr>
+            <th>Sl.No</th><th>Name</th><th>Phone</th><th>Created</th><th>Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${pendingLeads.map(l => `
+          <tr>
+            <td>${l.slNo}</td>
+            <td>${escapeHtml(l.fullName)}</td>
+            <td>${escapeHtml(l.phoneNumber)}</td>
+            <td>${l.createdAt ? formatDateTime(l.createdAt.toDate()) : "—"}</td>
+            <td><span class="badge badge-pending-assignment">${escapeHtml(l.assignmentReason || "Pending")}</span></td>
+          </tr>`).join("")}
+        </tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+// ── Audit Log ─────────────────────────────────────────────────
+async function renderAuditLog() {
+  const wrap = document.getElementById("auditLogBody");
+  if (!wrap) return;
+
+  wrap.innerHTML = `<div class="text-center text-muted py-4">
+    <span class="spinner-border spinner-border-sm me-2"></span>Loading…</div>`;
+
+  try {
+    const snap = await auditLogRef.orderBy("timestamp", "desc").limit(200).get();
+    if (snap.empty) {
+      wrap.innerHTML = `<p class="text-muted">No audit entries yet.</p>`;
+      return;
+    }
+
+    const rows = [];
+    snap.forEach(d => rows.push({ id: d.id, ...d.data() }));
+
+    wrap.innerHTML = `
+    <div class="table-card">
+      <div class="table-responsive">
+        <table class="table align-middle table-hover mb-0" style="font-size:13px">
+          <thead>
+            <tr>
+              <th>Date &amp; Time</th>
+              <th>Lead #</th>
+              <th>Action</th>
+              <th>Reason</th>
+              <th>Actor</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(r => `
+            <tr>
+              <td class="text-nowrap">${r.timestamp ? formatDateTime(r.timestamp.toDate()) : "—"}</td>
+              <td>${r.slNo || "—"}</td>
+              <td><span class="badge audit-badge-${_auditBadgeClass(r.action)}">${escapeHtml(r.action)}</span></td>
+              <td>${escapeHtml(r.reason || "—")}</td>
+              <td>${escapeHtml(r.actor || "System")}</td>
+            </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  } catch (err) {
+    console.error("Audit log load failed:", err);
+    wrap.innerHTML = `<p class="text-danger">Failed to load audit log.</p>`;
+  }
+}
+
+function _auditBadgeClass(action) {
+  if (!action) return "info";
+  const a = action.toLowerCase();
+  if (a.includes("assigned immediately") || a.includes("office opening")) return "success";
+  if (a.includes("pending"))   return "warning";
+  if (a.includes("skipped"))   return "danger";
+  if (a.includes("holiday"))   return "secondary";
+  return "info";
 }
 
 function requestNotificationPermission() {

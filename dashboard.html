@@ -132,6 +132,32 @@
         </div>
       </section>
 
+      <!-- LEAVE MANAGEMENT VIEW (Admin / Super Admin / Member own) -->
+      <section id="view-leave" class="view-section d-none">
+        <!-- Rendered dynamically by leave.js → renderLeaveView() -->
+      </section>
+
+      <!-- DASHBOARD OVERVIEW (Admin / Super Admin) -->
+      <section id="view-dashboard" class="view-section d-none">
+        <div class="mb-4">
+          <h1 class="page-title"><i class="bi bi-speedometer2 me-2"></i>Dashboard</h1>
+          <p class="page-subtitle">Today's assignment and attendance overview.</p>
+        </div>
+        <div id="dashboardCardsGrid" class="row g-3 mb-4"></div>
+        <div id="dashboardPendingList"></div>
+      </section>
+
+      <!-- AUDIT LOG VIEW (Admin / Super Admin) -->
+      <section id="view-auditlog" class="view-section d-none">
+        <div class="mb-4">
+          <h1 class="page-title"><i class="bi bi-journal-text me-2"></i>Audit Log</h1>
+          <p class="page-subtitle">Every automatic assignment action, with reason and timestamp.</p>
+        </div>
+        <div id="auditLogBody">
+          <div class="text-center text-muted py-5">Loading audit log…</div>
+        </div>
+      </section>
+
       <!-- CRM SETTINGS VIEW (Super Admin only) -->
       <section id="view-crmsettings" class="view-section d-none">
         <!-- Rendered dynamically by settings.js → renderCRMSettingsView() -->
@@ -259,6 +285,24 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body" id="historyModalBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Holiday Welcome (shown on login day after a holiday) -->
+  <div class="modal fade" id="holidayWelcomeModal" tabindex="-1" aria-modal="true" role="dialog">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header" style="background:linear-gradient(135deg,#0F2C46,#E8A33D);color:#fff;border:none">
+          <h5 class="modal-title fw-bold">
+            <i class="bi bi-sun-fill me-2"></i>Welcome Back!
+          </h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body" id="holidayWelcomeBody" style="padding:24px"></div>
+        <div class="modal-footer border-0 justify-content-center pb-4">
+          <button class="btn btn-brand px-5" data-bs-dismiss="modal">Let's Go! 🚀</button>
+        </div>
       </div>
     </div>
   </div>
@@ -427,6 +471,8 @@
   <script src="js/firebase-config.js"></script>
   <script src="js/auth.js"></script>
   <script src="js/settings.js"></script>
+  <script src="js/assignment.js"></script>
+  <script src="js/leave.js"></script>
   <script src="js/ai.js"></script>
   <script src="js/leads.js"></script>
   <script src="js/users.js"></script>
