@@ -45,6 +45,11 @@ async function initApp() {
     await loadUsersView();
   }
 
+  // Subscribe to Call Audits (for Admin/Super Admin dashboard)
+  if (CURRENT_USER.role === "admin" || CURRENT_USER.role === "superadmin") {
+    subscribeCallAudits();
+  }
+
   // Start background watchers
   startReminderWatcher();
   startAssignmentWatcher();          // smart assignment engine
@@ -85,6 +90,9 @@ function buildNav() {
       <i class="bi bi-exclamation-triangle"></i>
       Urgent Actions
       <span id="urgentBadge" class="urgent-nav-badge d-none"></span>
+    </a>
+    <a href="#" class="nav-link nav-item-link" data-view="callaudit">
+      <i class="bi bi-clipboard-check"></i> Call Audit
     </a>
     <a href="#" class="nav-link nav-item-link" data-view="report">
       <i class="bi bi-file-earmark-text"></i> Daily Report
@@ -157,6 +165,7 @@ function showView(viewName) {
   if (viewName === "leave")       loadLeaveView();
   if (viewName === "dashboard")   renderDashboardCards();
   if (viewName === "auditlog")    renderAuditLog();
+  if (viewName === "callaudit")   renderCallAuditDashboard();
 }
 
 // ── Dashboard Cards ───────────────────────────────────────────

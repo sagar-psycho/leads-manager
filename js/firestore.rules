@@ -131,5 +131,33 @@ service cloud.firestore {
       allow update: if isStaff();
       allow delete: if isStaff();
     }
+
+    // ── CALL AUDITS ───────────────────────────────────────────
+    // Sales Member: create audits, read own audits
+    // Admin/SA: read all, update (approve/reject/request re-call)
+    match /callAudits/{auditId} {
+      allow read: if isStaff()
+        || (isMember() && resource.data.salesMemberId == request.auth.uid);
+      allow create: if isMember() 
+        && request.resource.data.salesMemberId == request.auth.uid
+        && request.resource.data.status == "Pending";
+      allow update: if isStaff()
+        && (request.resource.data.status in ["Approved", "Rejected", "Re-Call Requested"]);
+    }
+
+    // ── CALL AUDIT LOG ────────────────────────────────────────
+    // Append-only log of audit actions (approve/reject/re-call)
+    match /callAuditLog/{docId} {
+      allow read: if isStaff();
+      allow create: if isStaff();
+      allow update, delete: if false;
+    }
+
+    // ── NOTIFICATIONS ─────────────────────────────────────────
+    // Users can read their own notifications, create notifications
+    match /notifications/{docId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isStaff(); // Admins create notifications
+    }
   }
 }

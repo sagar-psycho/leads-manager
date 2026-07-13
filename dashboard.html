@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dashboard — Abra Sales CRM</title>
+  <title>Abra Logistics </title>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
@@ -28,7 +28,7 @@
         <div class="sidebar-user-name" id="userName">—</div>
         <div class="sidebar-user-role" id="userRole">—</div>
         <button id="logoutBtn" class="btn btn-sm btn-outline-light w-100 mt-2">
-          <i class="bi bi-box-arrow-right"></i> Sign out
+          <i class="bi bi-box-arrow-right"></i> Go out
         </button>
       </div>
     </aside>
@@ -145,6 +145,11 @@
         </div>
         <div id="dashboardCardsGrid" class="row g-3 mb-4"></div>
         <div id="dashboardPendingList"></div>
+      </section>
+
+      <!-- CALL AUDIT VIEW (Admin / Super Admin) -->
+      <section id="view-callaudit" class="view-section d-none">
+        <!-- Rendered dynamically by call-audit.js → renderCallAuditDashboard() -->
       </section>
 
       <!-- AUDIT LOG VIEW (Admin / Super Admin) -->
@@ -265,6 +270,11 @@
               <label class="form-label">Note / Call summary</label>
               <textarea id="statusNote" class="form-control" rows="3" placeholder="What was discussed with the customer..."></textarea>
             </div>
+            <!-- Call Audit Notice for Members -->
+            <div id="callAuditNotice" class="alert alert-info d-none mb-2 py-2">
+              <i class="bi bi-info-circle-fill me-2"></i>
+              <strong>Note:</strong> To mark a lead as "Not Interested", you must upload a call recording for admin approval.
+            </div>
             <p class="small text-muted mb-0"><i class="bi bi-info-circle"></i> Busy → reminder in 1 hr. Not Picking Call → reminder in 4 hrs.</p>
           </div>
           <div class="modal-footer">
@@ -285,6 +295,251 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body" id="historyModalBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Call Audit Upload (Sales Member) -->
+  <div class="modal fade" id="callAuditUploadModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header" style="background: linear-gradient(135deg, #0F2C46, #E8A33D); color: #fff; border: none;">
+          <h5 class="modal-title">
+            <i class="bi bi-clipboard-check me-2"></i>Call Audit Required
+          </h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-warning mb-3">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+            <strong>Mandatory:</strong> You must upload a call recording before marking this lead as "Not Interested".
+          </div>
+          
+          <!-- Lead Info -->
+          <div class="card mb-3">
+            <div class="card-body py-2">
+              <div class="row g-2">
+                <div class="col-md-6">
+                  <small class="text-muted">Customer</small>
+                  <div class="fw-semibold" id="callAuditLeadName">—</div>
+                </div>
+                <div class="col-md-6">
+                  <small class="text-muted">Phone</small>
+                  <div class="fw-semibold" id="callAuditLeadPhone">—</div>
+                </div>
+                <div class="col-md-6">
+                  <small class="text-muted">Company</small>
+                  <div class="fw-semibold" id="callAuditLeadCompany">—</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Upload Recording -->
+          <div class="mb-3">
+            <label class="form-label fw-semibold">
+              <i class="bi bi-mic-fill me-1"></i>Call Recording <span class="text-danger">*</span>
+            </label>
+            <input type="file" 
+                   class="form-control" 
+                   id="callAuditRecordingFile"
+                   accept="audio/*,video/mp4,video/webm"
+                   onchange="handleCallAuditFileSelect(this)">
+            <div class="form-text">
+              Supported formats: MP3, WAV, M4A, AAC, OGG, WebM, MP4 (Audio). No size limit.
+            </div>
+            <div id="callAuditRecordingInfo" class="mt-2 d-none">
+              <span class="badge bg-info"><i class="bi bi-clock me-1"></i>Duration: <span id="callAuditRecordingDuration">0:00</span></span>
+            </div>
+          </div>
+          
+          <!-- Upload Progress -->
+          <div id="callAuditUploadProgressWrap" class="mb-3 d-none">
+            <div class="progress" style="height: 20px;">
+              <div id="callAuditUploadProgress" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div>
+            </div>
+            <small id="callAuditUploadProgressText" class="text-muted"></small>
+          </div>
+          
+          <!-- Reason -->
+          <div class="mb-3">
+            <label class="form-label fw-semibold">
+              <i class="bi bi-chat-left-text me-1"></i>Reason <span class="text-danger">*</span>
+            </label>
+            <select id="callAuditReason" class="form-select" required>
+              <option value="">-- Select Reason --</option>
+            </select>
+          </div>
+          
+          <!-- Remarks -->
+          <div class="mb-3">
+            <label class="form-label fw-semibold">
+              <i class="bi bi-pencil me-1"></i>Remarks (Optional)
+            </label>
+            <textarea id="callAuditRemarks" class="form-control" rows="3" placeholder="Additional details about the conversation..."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" id="callAuditSubmitBtn" class="btn btn-brand" onclick="submitCallAuditRequest()" disabled>
+            <i class="bi bi-check-lg me-1"></i>Submit for Approval
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Call Audit Review (Admin / Super Admin) -->
+  <div class="modal fade" id="callAuditReviewModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header" style="background: linear-gradient(135deg, #0F2C46, #E8A33D); color: #fff; border: none;">
+          <h5 class="modal-title">
+            <i class="bi bi-clipboard-check me-2"></i>Call Audit Review
+          </h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-4">
+            <!-- Customer Details -->
+            <div class="col-md-6">
+              <div class="card h-100">
+                <div class="card-header bg-light py-2">
+                  <i class="bi bi-person-fill me-1"></i>Customer Details
+                </div>
+                <div class="card-body py-2">
+                  <div class="row g-2">
+                    <div class="col-6">
+                      <small class="text-muted">Name</small>
+                      <div class="fw-semibold" id="callAuditReviewLeadName">—</div>
+                    </div>
+                    <div class="col-6">
+                      <small class="text-muted">Phone</small>
+                      <div class="fw-semibold" id="callAuditReviewLeadPhone">—</div>
+                    </div>
+                    <div class="col-6">
+                      <small class="text-muted">Company</small>
+                      <div class="fw-semibold" id="callAuditReviewLeadCompany">—</div>
+                    </div>
+                    <div class="col-6">
+                      <small class="text-muted">Service Needed</small>
+                      <div class="fw-semibold" id="callAuditReviewLeadService">—</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Sales Member Info -->
+            <div class="col-md-6">
+              <div class="card h-100">
+                <div class="card-header bg-light py-2">
+                  <i class="bi bi-person-badge me-1"></i>Sales Member
+                </div>
+                <div class="card-body py-2">
+                  <div class="row g-2">
+                    <div class="col-6">
+                      <small class="text-muted">Name</small>
+                      <div class="fw-semibold" id="callAuditReviewSalesMember">—</div>
+                    </div>
+                    <div class="col-6">
+                      <small class="text-muted">Requested Date</small>
+                      <div class="fw-semibold" id="callAuditReviewDate">—</div>
+                    </div>
+                    <div class="col-12">
+                      <small class="text-muted">Status</small>
+                      <div id="callAuditReviewStatus">—</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Reason & Remarks -->
+            <div class="col-md-6">
+              <div class="card h-100">
+                <div class="card-header bg-light py-2">
+                  <i class="bi bi-chat-left-text me-1"></i>Reason & Remarks
+                </div>
+                <div class="card-body py-2">
+                  <div class="mb-2">
+                    <small class="text-muted">Reason</small>
+                    <div class="fw-semibold" id="callAuditReviewReason">—</div>
+                  </div>
+                  <div>
+                    <small class="text-muted">Sales Member Remarks</small>
+                    <div id="callAuditReviewRemarks">—</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Audio Player -->
+            <div class="col-md-6">
+              <div class="card h-100">
+                <div class="card-header bg-light py-2">
+                  <i class="bi bi-mic-fill me-1"></i>Call Recording
+                </div>
+                <div class="card-body py-2">
+                  <div class="d-flex align-items-center gap-2 mb-2">
+                    <i class="bi bi-file-earmark-music"></i>
+                    <span id="callAuditReviewFileName">—</span>
+                    <span class="badge bg-secondary ms-auto" id="callAuditReviewDuration">—</span>
+                  </div>
+                  <audio id="callAuditReviewAudio" controls class="w-100" style="height: 40px;"></audio>
+                  <div class="mt-2">
+                    <a id="callAuditReviewDownloadBtn" class="btn btn-sm btn-outline-primary" download>
+                      <i class="bi bi-download me-1"></i>Download Recording
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Approval Info (shown after review) -->
+            <div id="callAuditReviewApprovalInfo" class="col-12 d-none">
+              <div class="card bg-light">
+                <div class="card-body py-2">
+                  <div class="row g-2">
+                    <div class="col-md-6">
+                      <small class="text-muted">Reviewed By</small>
+                      <div class="fw-semibold" id="callAuditReviewReviewedBy">—</div>
+                    </div>
+                    <div class="col-md-6">
+                      <small class="text-muted">Reviewed At</small>
+                      <div class="fw-semibold" id="callAuditReviewReviewedAt">—</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Admin Remarks -->
+            <div class="col-12">
+              <label class="form-label fw-semibold">
+                <i class="bi bi-pencil me-1"></i>Admin Remarks
+              </label>
+              <textarea id="callAuditReviewAdminRemarks" class="form-control" rows="3" placeholder="Add your remarks for this review..."></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <div id="callAuditReviewActions" class="d-flex gap-2">
+            <button type="button" class="btn btn-success" onclick="approveCallAudit(false)">
+              <i class="bi bi-check-circle me-1"></i>Approve
+            </button>
+            <button type="button" class="btn btn-outline-success" onclick="approveCallAudit(true)">
+              <i class="bi bi-check-circle-fill me-1"></i>Approve with Remarks
+            </button>
+            <button type="button" class="btn btn-danger" onclick="rejectCallAudit()">
+              <i class="bi bi-x-circle me-1"></i>Reject
+            </button>
+            <button type="button" class="btn btn-info" onclick="requestRecallAudit()">
+              <i class="bi bi-telephone me-1"></i>Request Re-Call
+            </button>
+          </div>
+          <button type="button" class="btn btn-outline-secondary ms-auto" data-bs-dismiss="modal">Close</button>
+        </div>
       </div>
     </div>
   </div>
@@ -468,12 +723,14 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
   <script src="js/firebase-config.js"></script>
   <script src="js/auth.js"></script>
   <script src="js/settings.js"></script>
   <script src="js/assignment.js"></script>
   <script src="js/leave.js"></script>
   <script src="js/ai.js"></script>
+  <script src="js/call-audit.js"></script>
   <script src="js/leads.js"></script>
   <script src="js/users.js"></script>
   <script src="js/report.js"></script>

@@ -3,6 +3,14 @@
 // history logging, filters, urgent actions, follow-up reminders
 // ============================================================
 
+// ============================================================
+// STATUS LIST
+// ============================================================
+// NOTE: "Pending Approval" and "Re-Call Required" are SYSTEM-ONLY statuses.
+// They are automatically assigned by the workflow and should NEVER be 
+// manually selectable in the dropdown. They are managed via callAuditStatus field.
+// ============================================================
+
 const STATUS_LIST = [
   "Not Open",
   "Busy",
@@ -13,6 +21,12 @@ const STATUS_LIST = [
   "Driver",
   "Transporter"
 ];
+
+// System-only statuses (never shown in dropdown, set automatically by workflow)
+const SYSTEM_STATUSES = ["Pending Approval", "Re-Call Required"];
+
+// Statuses that require mandatory call audit (Sales Members cannot set directly)
+const AUDIT_REQUIRED_STATUSES = ["Not Interested"];
 
 // Reminder delay in minutes per status — now read from CRM Settings at runtime.
 // STATUS_REMINDER_MINUTES kept as a fallback for the very first render before
@@ -30,7 +44,9 @@ const STATUS_BADGE_CLASS = {
   "Not Interested": "badge-not-interested",
   "Job Seeker": "badge-job-seeker",
   "Driver": "badge-driver",
-  "Transporter": "badge-transporter"
+  "Transporter": "badge-transporter",
+  "Pending Approval": "badge-pending-approval",
+  "Re-Call Required": "badge-recall-required"
 };
 
 const UNCONTACTED_ALERT_MINUTES = 30; // fallback — overridden at runtime by getCRMSetting("leadRules.uncontactedAlertMinutes")
@@ -634,6 +650,9 @@ function openStatusModal(leadId) {
 
   document.getElementById("statusModalLeadName").textContent = `${lead.fullName} — ${lead.phoneNumber}`;
   const select = document.getElementById("statusSelect");
+  
+  // Build dropdown with all regular statuses (SYSTEM_STATUSES are never selectable)
+  // "Not Interested" IS visible for everyone - it's intercepted for members
   select.innerHTML = STATUS_LIST.map((s) => `<option value="${s}" ${s === lead.status ? "selected" : ""}>${s}</option>`).join("");
   document.getElementById("statusNote").value = "";
 
@@ -646,6 +665,15 @@ if (statusUpdateForm) {
     e.preventDefault();
     const newStatus = document.getElementById("statusSelect").value;
     const note = document.getElementById("statusNote").value;
+    const lead = ALL_LEADS.find(l => l.id === currentStatusLeadId);
+    
+    // Check if this is a "Not Interested" status for a Sales Member
+    if (newStatus === "Not Interested" && CURRENT_USER.role === "member") {
+      // Intercept and open call audit modal - do NOT change status directly
+      handleNotInterestedStatus(currentStatusLeadId, lead);
+      return;
+    }
+    
     try {
       await updateLeadStatus(currentStatusLeadId, newStatus, note);
       bootstrap.Modal.getInstance(document.getElementById("statusModal")).hide();

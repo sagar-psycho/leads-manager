@@ -157,6 +157,8 @@ h1, h2, h3, .auth-brand-title, .sidebar-brand-title {
 .badge-job-seeker { background: #DCE8FB; color: #2A5A9C; }
 .badge-driver { background: #E7DEF9; color: #6339B5; }
 .badge-transporter { background: #D6F0EE; color: #157A72; }
+.badge-pending-approval { background: #FEF3C7; color: #92600A; }
+.badge-recall-required { background: #E0E7FF; color: #4338CA; }
 
 /* ---------------- CARDS: urgent / follow-up ---------------- */
 .urgent-card, .followup-card {
@@ -841,3 +843,60 @@ h1, h2, h3, .auth-brand-title, .sidebar-brand-title {
 .badge.audit-badge-danger    { background: #FBD7D7; color: #B23434; }
 .badge.audit-badge-secondary { background: #E3E8EF; color: #45566B; }
 .badge.audit-badge-info      { background: #DCE8FB; color: #2A5A9C; }
+/* ============================================================
+   CALL AUDIT — upload modal and dashboard
+   ============================================================ */
+
+/* Call Audit Upload Progress */
+#callAuditUploadProgressWrap .progress {
+  height: 20px;
+  background: #E3E8EF;
+  border-radius: 10px;
+  overflow: hidden;
+}
+#callAuditUploadProgress {
+  transition: width 0.3s ease;
+  min-width: 30px;
+}
+
+/* Call Audit Status Badge */
+.call-audit-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.call-audit-pending      { background: #FEF3C7; color: #92600A; }
+.call-audit-approved     { background: #D8F3DD; color: #1E7A34; }
+.call-audit-rejected     { background: #FBD7D7; color: #B23434; }
+.call-audit-recall       { background: #DCE8FB; color: #2A5A9C; }
+
+/* Audio player styling in review modal */
+#callAuditReviewAudio {
+  height: 40px;
+  border-radius: 6px;
+  background: #F5F7FA;
+}
+
+/* Call Audit card in dashboard */
+.call-audit-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  transition: box-shadow 0.15s;
+}
+.call-audit-card:hover {
+  box-shadow: 0 2px 8px rgba(15,44,70,0.08);
+}
+
+/* Call Audit table actions */
+.call-audit-action-btn {
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 4px;
+}
