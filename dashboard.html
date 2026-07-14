@@ -96,10 +96,31 @@
         <h1 class="page-title">Daily Report</h1>
         <p class="page-subtitle">A ready-to-send summary of lead activity for any day.</p>
 
-        <div class="row g-2 align-items-end mb-3">
+        <div class="row g-2 align-items-end mb-3 report-period-controls">
           <div class="col-6 col-md-3">
-            <label class="form-label small mb-1">Report date</label>
+            <label class="form-label small mb-1">Period</label>
+            <select id="reportPeriod" class="form-select form-select-sm">
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="custom_date">Custom Date</option>
+              <option value="date_range">Date Range</option>
+            </select>
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label small mb-1">Date</label>
             <input type="date" id="reportDate" class="form-control form-control-sm">
+          </div>
+          <div id="reportDateRangeWrap" class="d-none col-12 col-md-6">
+            <div class="row g-2">
+              <div class="col-6">
+                <label class="form-label small mb-1">From Date</label>
+                <input type="date" id="reportDateRangeFrom" class="form-control form-control-sm">
+              </div>
+              <div class="col-6">
+                <label class="form-label small mb-1">To Date</label>
+                <input type="date" id="reportDateRangeTo" class="form-control form-control-sm">
+              </div>
+            </div>
           </div>
           <div class="col-6 col-md-3">
             <label class="form-label small mb-1">Manager name</label>
@@ -107,7 +128,7 @@
           </div>
           <div class="col-6 col-md-3">
             <button class="btn btn-sm btn-brand" onclick="renderDailyReport()">
-              <i class="bi bi-arrow-repeat"></i> Generate
+              <i class="bi bi-arrow-repeat"></i> Refresh
             </button>
           </div>
         </div>
@@ -723,7 +744,6 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
   <script src="js/firebase-config.js"></script>
   <script src="js/auth.js"></script>
   <script src="js/settings.js"></script>

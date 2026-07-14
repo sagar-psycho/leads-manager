@@ -900,3 +900,103 @@ h1, h2, h3, .auth-brand-title, .sidebar-brand-title {
   font-size: 12px;
   border-radius: 4px;
 }
+
+/* ---------------- ENHANCED DAILY REPORT CONTROLS ---------------- */
+.report-period-controls .form-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.report-period-controls .form-select-sm,
+.report-period-controls .form-control-sm {
+  font-size: 13px;
+  height: 36px;
+  border-radius: 6px;
+  border: 1px solid var(--border-soft);
+}
+
+.report-period-controls .form-select-sm:focus,
+.report-period-controls .form-control-sm:focus {
+  border-color: var(--navy);
+  box-shadow: 0 0 0 0.2rem rgba(38, 74, 129, 0.15);
+}
+
+#reportDateRangeWrap {
+  transition: all 0.3s ease;
+}
+
+/* Responsive adjustments for report controls */
+@media (max-width: 768px) {
+  .report-period-controls .col-6 {
+    margin-bottom: 10px;
+  }
+  
+  .report-period-controls .col-6:last-child {
+    margin-bottom: 0;
+  }
+  
+  #reportDateRangeWrap .col-6 {
+    margin-bottom: 8px;
+  }
+  
+  #reportDateRangeWrap .col-6:last-child {
+    margin-bottom: 0;
+  }
+}
+
+/* Refresh button styling */
+.btn-brand {
+  background-color: var(--navy);
+  border-color: var(--navy);
+  color: white;
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.btn-brand:hover {
+  background-color: #1a3d7c;
+  border-color: #1a3d7c;
+  color: white;
+}
+
+/* Message preview actions */
+.btn-outline-secondary {
+  border-color: var(--border-soft);
+  color: var(--text-muted);
+}
+
+.btn-outline-secondary:hover {
+  background-color: var(--border-soft);
+  border-color: var(--text-muted);
+  color: var(--text-dark);
+}
+
+/* Report message box enhancements */
+.report-message-box {
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 300px;
+  overflow-y: auto;
+  font-size: 13.5px;
+}
+
+.report-message-box::-webkit-scrollbar {
+  width: 6px;
+}
+
+.report-message-box::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.report-message-box::-webkit-scrollbar-thumb {
+  background: var(--border-soft);
+  border-radius: 3px;
+}
+
+.report-message-box::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}

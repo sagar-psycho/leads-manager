@@ -159,7 +159,7 @@ function showView(viewName) {
     renderUrgentActions();
   }
   if (viewName === "myfollowups") renderMyFollowUps();
-  if (viewName === "report")      renderDailyReport();
+  if (viewName === "report")      initReportControls();
   if (viewName === "aisettings")  renderAISettingsView();
   if (viewName === "crmsettings") renderCRMSettingsView();
   if (viewName === "leave")       loadLeaveView();

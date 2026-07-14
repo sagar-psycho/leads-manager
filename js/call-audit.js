@@ -7,6 +7,8 @@
 // 3. Lead status → "Pending Approval"
 // 4. Admin/Super Admin reviews in Call Audit Dashboard
 // 5. Approve → "Not Interested" | Reject → restore status | Re-Call → "Re-Call Required"
+//
+// Storage: Uses Cloudinary (Firebase Storage removed - Spark plan limitation)
 // ============================================================
 
 (function() {
@@ -35,13 +37,20 @@
     "audio/aac", "audio/ogg", "audio/webm", "video/webm", "video/mp4"
   ];
 
+  // ── Cloudinary Configuration ──────────────────────────────────
+  var CLOUDINARY_CLOUD_NAME = "hazf1hmf";
+  var CLOUDINARY_UPLOAD_PRESET = "abra-logistic-call-recordings";
+  var CLOUDINARY_UPLOAD_URL = "https://api.cloudinary.com/v1_1/" + CLOUDINARY_CLOUD_NAME + "/auto/upload";
+
   // ── In-memory cache ───────────────────────────────────────────
   var ALL_CALL_AUDITS = [];
   var currentAuditLeadId = null;
   var currentAuditLead = null;
   var uploadedRecordingUrl = null;
+  var uploadedRecordingPublicId = null;
   var uploadedRecordingFileName = null;
   var uploadedRecordingDuration = null;
+  var isUploading = false;
 
   // ── Helper: Get CURRENT_USER safely ───────────────────────────
   function getCurrentUser() {
@@ -87,6 +96,43 @@
       .replace(/"/g, "&quot;");
   }
 
+  // ── Cloudinary Upload Function ────────────────────────────────
+  // Returns: { url: data.secure_url, publicId: data.public_id, originalFilename: data.original_filename }
+  // Throws: Error if upload fails
+  async function uploadRecordingToCloudinary(file) {
+    if (!file) {
+      throw new Error('No file provided for upload');
+    }
+
+    var formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+
+    try {
+      var response = await fetch(CLOUDINARY_UPLOAD_URL, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        var errorText = await response.text().catch(function() { return 'Unknown error'; });
+        console.error('Cloudinary upload error:', response.status, errorText);
+        throw new Error('Upload failed with status ' + response.status);
+      }
+
+      var data = await response.json();
+      
+      return {
+        url: data.secure_url,
+        publicId: data.public_id,
+        originalFilename: data.original_filename
+      };
+    } catch (err) {
+      console.error('Cloudinary upload failed:', err);
+      throw err;
+    }
+  }
+
   // ── Initialize Call Audit subscription ─────────────────────────
   window.subscribeCallAudits = function() {
     if (!isFirestoreReady()) {
@@ -123,6 +169,7 @@
     currentAuditLeadId = leadId;
     currentAuditLead = lead;
     uploadedRecordingUrl = null;
+    uploadedRecordingPublicId = null;
     uploadedRecordingFileName = null;
     uploadedRecordingDuration = null;
 
@@ -182,6 +229,7 @@
     
     // Reset upload state
     uploadedRecordingUrl = null;
+    uploadedRecordingPublicId = null;
     uploadedRecordingFileName = null;
     uploadedRecordingDuration = null;
     
@@ -248,7 +296,7 @@
     window.uploadCallRecording(file);
   };
 
-  // ── Upload recording to Firebase Storage ──────────────────────
+  // ── Upload recording to Cloudinary ────────────────────────────
   window.uploadCallRecording = function(file) {
     var progressWrap = document.getElementById("callAuditUploadProgressWrap");
     var progressBar = document.getElementById("callAuditUploadProgress");
@@ -263,57 +311,50 @@
     if (progressText) progressText.textContent = "Uploading...";
     if (submitBtn) submitBtn.disabled = true;
     
-    // Check if storage is available
-    if (!window.isStorageAvailable() || !window.callRecordingsRef) {
-      showToast("Firebase Storage is not available. Please contact administrator.", "danger");
-      if (progressText) progressText.textContent = "Storage unavailable";
-      if (progressBar) progressBar.classList.add("bg-danger");
+    // Validate currentAuditLeadId is set
+    if (!currentAuditLeadId || !currentAuditLead) {
+      showToast("Lead information not available. Please try again.", "danger");
+      if (progressWrap) progressWrap.classList.add("d-none");
+      if (submitBtn) submitBtn.disabled = false;
       return;
     }
     
-    try {
-      var auditId = "audit_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
-      var fileExtension = file.name.split('.').pop();
-      var storagePath = currentAuditLeadId + "/" + auditId + "." + fileExtension;
-      var fileRef = window.callRecordingsRef.child(storagePath);
-      
-      var uploadTask = fileRef.put(file);
-      
-      uploadTask.on('state_changed', 
-        function(snapshot) {
-          var progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          if (progressBar) progressBar.style.width = progress + "%";
-          if (progressText) progressText.textContent = "Uploading... " + Math.round(progress) + "%";
-        },
-        function(error) {
-          console.error("Upload failed:", error);
-          showToast("Upload failed. Please try again.", "danger");
-          if (progressText) progressText.textContent = "Upload failed";
-          if (progressBar) progressBar.classList.add("bg-danger");
-          if (submitBtn) submitBtn.disabled = true;
-        },
-        function() {
-          uploadTask.snapshot.ref.getDownloadURL().then(function(url) {
-            uploadedRecordingUrl = url;
-            if (progressText) progressText.textContent = "Upload complete ✓";
-            if (progressBar) {
-              progressBar.style.width = "100%";
-              progressBar.classList.add("bg-success");
-            }
-            if (submitBtn) submitBtn.disabled = false;
-            showToast("Recording uploaded successfully.", "success");
-          }).catch(function(err) {
-            console.error("Get download URL failed:", err);
-            showToast("Upload complete but could not get URL.", "warning");
-            if (submitBtn) submitBtn.disabled = false;
-          });
-        }
-      );
-    } catch (err) {
-      console.error("Upload error:", err);
-      showToast("Failed to upload recording.", "danger");
-      if (submitBtn) submitBtn.disabled = true;
+    // Set upload state
+    isUploading = true;
+    
+    // Show indeterminate progress (since fetch doesn't provide progress)
+    if (progressBar) {
+      progressBar.classList.add("progress-bar-animated");
+      progressBar.style.width = "100%";
     }
+    
+    uploadRecordingToCloudinary(file)
+      .then(function(result) {
+        uploadedRecordingUrl = result.url;
+        uploadedRecordingPublicId = result.publicId;
+        
+        if (progressText) progressText.textContent = "Upload complete ✓";
+        if (progressBar) {
+          progressBar.classList.remove("progress-bar-animated");
+          progressBar.style.width = "100%";
+          progressBar.classList.add("bg-success");
+        }
+        if (submitBtn) submitBtn.disabled = false;
+        showToast("Recording uploaded successfully.", "success");
+      })
+      .catch(function(err) {
+        console.error("Upload failed:", err);
+        showToast("Recording upload failed. Please try again.", "danger");
+        if (progressText) progressText.textContent = "Upload failed";
+        if (progressBar) {
+          progressBar.classList.remove("progress-bar-animated");
+          progressBar.classList.add("bg-danger");
+        }
+        if (submitBtn) submitBtn.disabled = false;
+      })
+      .finally(function() {
+        isUploading = false;
+      });
   };
 
   // ── Submit Call Audit Request ─────────────────────────────────
@@ -337,6 +378,12 @@
     
     if (!isFirestoreReady()) {
       showToast("Database connection error. Please refresh the page.", "danger");
+      return;
+    }
+    
+    // Validate lead exists
+    if (!currentAuditLead || !currentAuditLeadId) {
+      showToast("Lead information not available. Please try again.", "danger");
       return;
     }
     
@@ -365,6 +412,7 @@
       reason: reason,
       remarks: remarks,
       recordingUrl: uploadedRecordingUrl,
+      recordingPublicId: uploadedRecordingPublicId,
       recordingFileName: uploadedRecordingFileName,
       recordingDuration: uploadedRecordingDuration,
       status: CALL_AUDIT_STATUS.PENDING,
@@ -401,8 +449,11 @@
       
       // Reset state
       uploadedRecordingUrl = null;
+      uploadedRecordingPublicId = null;
       uploadedRecordingFileName = null;
       uploadedRecordingDuration = null;
+      currentAuditLead = null;
+      currentAuditLeadId = null;
       
     }).catch(function(err) {
       console.error("Submit call audit error:", err);
@@ -527,6 +578,272 @@
               '</td></tr>';
           }).join("")) +
       '</tbody></table></div></div>';
+  };
+
+  // ── Call Audit Review Modal ───────────────────────────────────
+  window.openCallAuditReviewModal = function(auditId) {
+    var audit = ALL_CALL_AUDITS.find(function(a) { return a.id === auditId; });
+    if (!audit) {
+      showToast("Audit record not found.", "danger");
+      return;
+    }
+    
+    var isPending = audit.status === CALL_AUDIT_STATUS.PENDING;
+    var user = getCurrentUser();
+    var canReview = user.role === "admin" || user.role === "superadmin";
+    
+    var leadNameEl = document.getElementById("callAuditReviewLeadName");
+    var leadPhoneEl = document.getElementById("callAuditReviewLeadPhone");
+    var leadCompanyEl = document.getElementById("callAuditReviewLeadCompany");
+    var leadServiceEl = document.getElementById("callAuditReviewLeadService");
+    var salesMemberEl = document.getElementById("callAuditReviewSalesMember");
+    var reasonEl = document.getElementById("callAuditReviewReason");
+    var remarksEl = document.getElementById("callAuditReviewRemarks");
+    var dateEl = document.getElementById("callAuditReviewDate");
+    var statusEl = document.getElementById("callAuditReviewStatus");
+    
+    if (leadNameEl) leadNameEl.textContent = audit.customerName;
+    if (leadPhoneEl) leadPhoneEl.textContent = audit.phoneNumber;
+    if (leadCompanyEl) leadCompanyEl.textContent = audit.companyName || "—";
+    if (leadServiceEl) leadServiceEl.textContent = audit.serviceNeeded || "—";
+    if (salesMemberEl) salesMemberEl.textContent = audit.salesMemberName;
+    if (reasonEl) reasonEl.textContent = audit.reason;
+    if (remarksEl) remarksEl.textContent = audit.remarks || "No remarks provided";
+    if (dateEl) dateEl.textContent = audit.createdAt ? formatDateTime(audit.createdAt.toDate()) : "—";
+    if (statusEl) statusEl.innerHTML = window._callAuditStatusBadge(audit.status);
+    
+    // Audio player
+    var audioPlayer = document.getElementById("callAuditReviewAudio");
+    if (audioPlayer) {
+      audioPlayer.src = audit.recordingUrl;
+    }
+    
+    var fileNameEl = document.getElementById("callAuditReviewFileName");
+    if (fileNameEl) fileNameEl.textContent = audit.recordingFileName || "Recording";
+    
+    var durationEl = document.getElementById("callAuditReviewDuration");
+    if (durationEl) {
+      if (audit.recordingDuration) {
+        var mins = Math.floor(audit.recordingDuration / 60);
+        var secs = audit.recordingDuration % 60;
+        durationEl.textContent = mins + ":" + secs.toString().padStart(2, "0");
+      } else {
+        durationEl.textContent = "—";
+      }
+    }
+    
+    // Download link
+    var downloadBtn = document.getElementById("callAuditReviewDownloadBtn");
+    if (downloadBtn) {
+      downloadBtn.href = audit.recordingUrl;
+      downloadBtn.download = audit.recordingFileName || "recording.mp3";
+    }
+    
+    // Admin remarks
+    var adminRemarksEl = document.getElementById("callAuditReviewAdminRemarks");
+    if (adminRemarksEl) {
+      adminRemarksEl.value = audit.adminRemarks || "";
+    }
+    
+    // Show/hide action buttons based on status and role
+    var actionsDiv = document.getElementById("callAuditReviewActions");
+    if (actionsDiv) {
+      if (isPending && canReview) {
+        actionsDiv.classList.remove("d-none");
+        if (adminRemarksEl) adminRemarksEl.disabled = false;
+      } else {
+        actionsDiv.classList.add("d-none");
+        if (adminRemarksEl) adminRemarksEl.disabled = true;
+      }
+    }
+    
+    // Show previous approval info if exists
+    var approvalInfo = document.getElementById("callAuditReviewApprovalInfo");
+    if (approvalInfo) {
+      if (audit.status !== CALL_AUDIT_STATUS.PENDING && audit.reviewedByName) {
+        approvalInfo.classList.remove("d-none");
+        var reviewedByEl = document.getElementById("callAuditReviewReviewedBy");
+        var reviewedAtEl = document.getElementById("callAuditReviewReviewedAt");
+        if (reviewedByEl) reviewedByEl.textContent = audit.reviewedByName;
+        if (reviewedAtEl) reviewedAtEl.textContent = audit.reviewedAt ? formatDateTime(audit.reviewedAt.toDate()) : "—";
+      } else {
+        approvalInfo.classList.add("d-none");
+      }
+    }
+    
+    // Store current audit id for actions
+    var modalEl = document.getElementById("callAuditReviewModal");
+    if (modalEl) {
+      modalEl.dataset.auditId = auditId;
+    }
+    
+    // Show modal
+    if (modalEl) {
+      new bootstrap.Modal(modalEl).show();
+    }
+  };
+
+  // ── Admin Actions ─────────────────────────────────────────────
+  window.approveCallAudit = function(withRemarks) {
+    var auditId = document.getElementById("callAuditReviewModal")?.dataset.auditId;
+    if (!auditId) return;
+    
+    var audit = ALL_CALL_AUDITS.find(function(a) { return a.id === auditId; });
+    if (!audit) return;
+    
+    var adminRemarksEl = document.getElementById("callAuditReviewAdminRemarks");
+    var adminRemarks = adminRemarksEl ? adminRemarksEl.value.trim() : "";
+    
+    if (withRemarks && !adminRemarks) {
+      showToast("Please add remarks for this approval.", "warning");
+      return;
+    }
+    
+    var user = getCurrentUser();
+    var now = firebase.firestore.Timestamp.now();
+    
+    // Update audit record
+    window.callAuditsRef.doc(auditId).update({
+      status: CALL_AUDIT_STATUS.APPROVED,
+      reviewedBy: user.uid,
+      reviewedByName: user.name || user.email,
+      reviewedAt: now,
+      adminRemarks: adminRemarks
+    }).then(function() {
+      // Update lead status to "Not Interested"
+      var historyEntry = {
+        text: "Call audit approved. Lead marked as Not Interested." + (adminRemarks ? " Remarks: " + adminRemarks : ""),
+        statusAtTime: "Not Interested",
+        updatedBy: user.uid,
+        updatedByName: user.name || user.email,
+        timestamp: new Date().toISOString()
+      };
+      
+      return window.leadsRef.doc(audit.leadId).update({
+        status: "Not Interested",
+        callAuditStatus: CALL_AUDIT_STATUS.APPROVED,
+        history: firebase.firestore.FieldValue.arrayUnion(historyEntry)
+      });
+    }).then(function() {
+      // Close modal and show success
+      var modalEl = document.getElementById("callAuditReviewModal");
+      if (modalEl) {
+        bootstrap.Modal.getInstance(modalEl).hide();
+      }
+      showToast("Call audit approved. Lead marked as Not Interested.", "success");
+    }).catch(function(err) {
+      console.error("Approve error:", err);
+      showToast("Failed to approve audit request.", "danger");
+    });
+  };
+
+  window.rejectCallAudit = function() {
+    var auditId = document.getElementById("callAuditReviewModal")?.dataset.auditId;
+    if (!auditId) return;
+    
+    var audit = ALL_CALL_AUDITS.find(function(a) { return a.id === auditId; });
+    if (!audit) return;
+    
+    var adminRemarksEl = document.getElementById("callAuditReviewAdminRemarks");
+    var adminRemarks = adminRemarksEl ? adminRemarksEl.value.trim() : "";
+    
+    if (!adminRemarks) {
+      showToast("Please provide remarks explaining why this request is rejected.", "warning");
+      return;
+    }
+    
+    var user = getCurrentUser();
+    var now = firebase.firestore.Timestamp.now();
+    
+    // Update audit record
+    window.callAuditsRef.doc(auditId).update({
+      status: CALL_AUDIT_STATUS.REJECTED,
+      reviewedBy: user.uid,
+      reviewedByName: user.name || user.email,
+      reviewedAt: now,
+      adminRemarks: adminRemarks
+    }).then(function() {
+      // Restore previous lead status
+      var previousStatus = audit.previousStatus || "Not Open";
+      var historyEntry = {
+        text: "Call audit rejected. Status restored to " + previousStatus + ". Remarks: " + adminRemarks,
+        statusAtTime: previousStatus,
+        updatedBy: user.uid,
+        updatedByName: user.name || user.email,
+        timestamp: new Date().toISOString()
+      };
+      
+      return window.leadsRef.doc(audit.leadId).update({
+        status: previousStatus,
+        callAuditStatus: firebase.firestore.FieldValue.delete(),
+        callAuditId: firebase.firestore.FieldValue.delete(),
+        previousStatusBeforeAudit: firebase.firestore.FieldValue.delete(),
+        history: firebase.firestore.FieldValue.arrayUnion(historyEntry)
+      });
+    }).then(function() {
+      // Close modal and show success
+      var modalEl = document.getElementById("callAuditReviewModal");
+      if (modalEl) {
+        bootstrap.Modal.getInstance(modalEl).hide();
+      }
+      showToast("Call audit rejected. Lead status restored.", "success");
+    }).catch(function(err) {
+      console.error("Reject error:", err);
+      showToast("Failed to reject audit request.", "danger");
+    });
+  };
+
+  window.requestRecallAudit = function() {
+    var auditId = document.getElementById("callAuditReviewModal")?.dataset.auditId;
+    if (!auditId) return;
+    
+    var audit = ALL_CALL_AUDITS.find(function(a) { return a.id === auditId; });
+    if (!audit) return;
+    
+    var adminRemarksEl = document.getElementById("callAuditReviewAdminRemarks");
+    var adminRemarks = adminRemarksEl ? adminRemarksEl.value.trim() : "";
+    
+    if (!adminRemarks) {
+      showToast("Please provide remarks for the re-call request.", "warning");
+      return;
+    }
+    
+    var user = getCurrentUser();
+    var now = firebase.firestore.Timestamp.now();
+    
+    // Update audit record
+    window.callAuditsRef.doc(auditId).update({
+      status: CALL_AUDIT_STATUS.RECALL_REQUESTED,
+      reviewedBy: user.uid,
+      reviewedByName: user.name || user.email,
+      reviewedAt: now,
+      adminRemarks: adminRemarks
+    }).then(function() {
+      // Update lead status to "Re-Call Required"
+      var historyEntry = {
+        text: "Admin requested re-call. " + adminRemarks,
+        statusAtTime: "Re-Call Required",
+        updatedBy: user.uid,
+        updatedByName: user.name || user.email,
+        timestamp: new Date().toISOString()
+      };
+      
+      return window.leadsRef.doc(audit.leadId).update({
+        status: "Re-Call Required",
+        callAuditStatus: CALL_AUDIT_STATUS.RECALL_REQUESTED,
+        history: firebase.firestore.FieldValue.arrayUnion(historyEntry)
+      });
+    }).then(function() {
+      // Close modal and show success
+      var modalEl = document.getElementById("callAuditReviewModal");
+      if (modalEl) {
+        bootstrap.Modal.getInstance(modalEl).hide();
+      }
+      showToast("Re-call requested. Sales member has been notified.", "success");
+    }).catch(function(err) {
+      console.error("Re-call error:", err);
+      showToast("Failed to request re-call.", "danger");
+    });
   };
 
   // Expose enums globally for external use
