@@ -255,7 +255,7 @@ function renderLeadsTable() {
       <td>${escapeHtml(l.companyName || "-")}</td>
       <td>${escapeHtml(l.phoneNumber)}</td>
       <td>${escapeHtml(l.email || "-")}</td>
-      <td>${escapeHtml(l.serviceNeeded || "-")}</td>
+      <td>${escapeHtml(l.campaignName || l.serviceNeeded || "General")}</td>
       <td>
         ${isPending
           ? `<span class="badge badge-pending-assignment"><i class="bi bi-hourglass-split me-1"></i>Pending Assignment</span>`
@@ -266,7 +266,8 @@ function renderLeadsTable() {
       </td>
       <td class="text-nowrap">
         ${isPending ? "" : `<button class="btn btn-sm btn-primary" onclick="openStatusModal('${l.id}')"><i class="bi bi-pencil-square"></i> Update</button>`}
-        <button class="btn btn-sm btn-outline-secondary" onclick="openHistoryModal('${l.id}')"><i class="bi bi-clock-history"></i></button>
+        <button class="btn btn-sm btn-outline-secondary" onclick="openLeadDetailsModal('${l.id}')" title="View Details"><i class="bi bi-eye"></i></button>
+        <button class="btn btn-sm btn-outline-secondary" onclick="openHistoryModal('${l.id}')" title="History"><i class="bi bi-clock-history"></i></button>
         ${isPending ? "" : `<button class="btn btn-sm btn-ai-pitch" onclick="openSalesPitchModal('${l.id}')" title="AI Sales Pitch"><i class="bi bi-robot"></i> AI Pitch</button>`}
         ${canEditDelete ? `<button class="btn btn-sm btn-outline-danger" onclick="confirmDeleteLead('${l.id}')"><i class="bi bi-trash"></i></button>` : ""}
       </td>
@@ -619,6 +620,21 @@ if (addLeadForm) {
   addLeadForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const btn = document.getElementById("addLeadSubmitBtn");
+
+    const campaignSel = document.getElementById("leadCampaign");
+    if (campaignSel && !campaignSel.value) {
+      toast("Please select a Campaign Type.", "warning");
+      return;
+    }
+
+    let campaignInfo = null;
+    try {
+      campaignInfo = collectCampaignDataFromAddLeadForm(); // null on legacy / no-campaign path
+    } catch (err) {
+      toast(err.message, "warning");
+      return;
+    }
+
     btn.disabled = true;
     try {
       await createLead({
@@ -626,9 +642,14 @@ if (addLeadForm) {
         email: document.getElementById("leadEmail").value.trim(),
         fullName: document.getElementById("leadFullName").value.trim(),
         phoneNumber: document.getElementById("leadPhone").value.trim(),
-        companyName: document.getElementById("leadCompany").value.trim()
+        companyName: document.getElementById("leadCompany").value.trim(),
+        campaignId:          campaignInfo ? campaignInfo.campaignId : null,
+        campaignName:        campaignInfo ? campaignInfo.campaignName : null,
+        campaignData:        campaignInfo ? campaignInfo.campaignData : null,
+        campaignFieldsMeta:  campaignInfo ? campaignInfo.campaignFieldsMeta : null
       });
       addLeadForm.reset();
+      resetAddLeadCampaignUI();
       bootstrap.Modal.getInstance(document.getElementById("addLeadModal")).hide();
       toast("Lead added and auto-assigned.", "success");
     } catch (err) {

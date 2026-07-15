@@ -125,6 +125,11 @@ async function smartCreateLead(formData) {
       createdAt:     now,
       lastContactedAt: null,
       nextFollowUpAt:  null,
+      // Campaign Form Builder — null/"" when the legacy "General / No Campaign" path is used
+      campaignId:         formData.campaignId || null,
+      campaignName:        formData.campaignName || null,
+      campaignData:        formData.campaignData || null,
+      campaignFieldsMeta:  formData.campaignFieldsMeta || null,
     };
 
     if (assignedMember) {

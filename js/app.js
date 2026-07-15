@@ -36,6 +36,10 @@ async function initApp() {
   // Subscribe to CRM Settings in real time (all roles)
   subscribeCRMSettings();
 
+  // Subscribe to Campaigns + Campaign Fields (all roles need the cache;
+  // only Super Admin sees the management UI)
+  subscribeCampaigns();
+
   // Load personal AI settings
   await loadAISettings();
 
@@ -116,6 +120,9 @@ function buildNav() {
     html += `
     <a href="#" class="nav-link nav-item-link" data-view="users">
       <i class="bi bi-people"></i> Manage Team
+    </a>
+    <a href="#" class="nav-link nav-item-link" data-view="campaigns">
+      <i class="bi bi-columns-gap"></i> Campaign Form Builder
     </a>`;
   }
 
@@ -166,6 +173,7 @@ function showView(viewName) {
   if (viewName === "dashboard")   renderDashboardCards();
   if (viewName === "auditlog")    renderAuditLog();
   if (viewName === "callaudit")   renderCallAuditDashboard();
+  if (viewName === "campaigns")   renderCampaignsView();
 }
 
 // ── Dashboard Cards ───────────────────────────────────────────

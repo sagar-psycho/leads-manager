@@ -59,7 +59,7 @@
                   <th>Company</th>
                   <th>Phone</th>
                   <th>Email</th>
-                  <th>Service Needed</th>
+                  <th>Campaign Type</th>
                   <th>Assigned To</th>
                   <th>Status</th>
                   <th>Actions</th>
@@ -226,6 +226,11 @@
         </div>
       </section>
 
+      <!-- CAMPAIGN FORM BUILDER VIEW (Super Admin only) -->
+      <section id="view-campaigns" class="view-section d-none">
+        <!-- Rendered dynamically by campaigns.js → renderCampaignsView() -->
+      </section>
+
     </main>
   </div>
 
@@ -243,9 +248,19 @@
           </div>
           <div class="modal-body">
             <div class="mb-3">
-              <label class="form-label">What service you need</label>
-              <input type="text" class="form-control" id="leadService" required placeholder="e.g. Air freight, Sea freight...">
+              <label class="form-label">Campaign Type <span class="text-danger">*</span></label>
+              <select class="form-select" id="leadCampaign" required onchange="onLeadCampaignChange()">
+                <option value="">Select Campaign…</option>
+                <option value="__none__">General / No Campaign</option>
+              </select>
+              <div class="form-text">Fields shown below update instantly based on the campaign selected — no page refresh.</div>
             </div>
+
+            <div class="mb-3 d-none" id="legacyServiceWrap">
+              <label class="form-label">What service you need</label>
+              <input type="text" class="form-control" id="leadService" placeholder="e.g. Air freight, Sea freight...">
+            </div>
+
             <div class="mb-3">
               <label class="form-label">Full name</label>
               <input type="text" class="form-control" id="leadFullName" required>
@@ -258,10 +273,14 @@
               <label class="form-label">Email</label>
               <input type="email" class="form-control" id="leadEmail">
             </div>
-            <div class="mb-3">
+
+            <div class="mb-3 d-none" id="legacyCompanyWrap">
               <label class="form-label">Company name</label>
               <input type="text" class="form-control" id="leadCompany">
             </div>
+
+            <div id="campaignFieldsContainer"></div>
+
             <p class="small text-muted mb-0"><i class="bi bi-info-circle"></i> Sl.No and timestamp are generated automatically. The lead will be auto-assigned to the next sales member in rotation.</p>
           </div>
           <div class="modal-footer">
@@ -316,6 +335,74 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body" id="historyModalBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Lead Details (👁 View) -->
+  <div class="modal fade" id="leadDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="leadDetailsModalTitle">Lead Details</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body" id="leadDetailsModalBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Create / Edit Campaign (Super Admin) -->
+  <div class="modal fade" id="campaignModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="campaignModalTitle">Create Campaign</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="campaignId">
+          <div class="mb-3">
+            <label class="form-label">Campaign Name</label>
+            <input type="text" class="form-control" id="campaignName" placeholder="e.g. Freight Services, Warehousing, Sea Freight...">
+          </div>
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" role="switch" id="campaignActive" checked>
+            <label class="form-check-label" for="campaignActive">Active (visible in Add Lead)</label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-brand" onclick="saveCampaign()">Save Campaign</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Campaign Field Builder (Super Admin) -->
+  <div class="modal fade" id="fieldBuilderModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="fieldBuilderModalTitle">Form Fields</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted">
+            Full Name, Mobile Number, and Email are permanent system fields and always appear first —
+            they are never shown here and cannot be edited, reordered, or deleted.
+          </p>
+          <div id="fieldBuilderRows"></div>
+          <button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick="addFieldRow()">
+            <i class="bi bi-plus-lg me-1"></i>Add Field
+          </button>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-brand" onclick="saveFieldBuilder()">
+            <i class="bi bi-floppy-fill me-1"></i>Save Fields
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -747,6 +834,7 @@
   <script src="js/firebase-config.js"></script>
   <script src="js/auth.js"></script>
   <script src="js/settings.js"></script>
+  <script src="js/campaigns.js"></script>
   <script src="js/assignment.js"></script>
   <script src="js/leave.js"></script>
   <script src="js/ai.js"></script>

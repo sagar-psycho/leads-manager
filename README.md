@@ -82,3 +82,39 @@ Firebase's client SDK automatically signs you in as whichever user you just crea
 - Reminders and toasts only fire while someone has the dashboard open in a browser tab (no server-side push). If you want true push notifications even when the app is closed, that would need Firebase Cloud Messaging + a Cloud Function — a natural v2 addition.
 - Bulk CSV lead upload isn't included yet (you've done this pattern before in the Sales Call CRM — happy to add it here too).
 - No pagination yet on the leads table — fine for hundreds of leads, worth adding if volume grows into the thousands.
+
+## 8. Campaign Form Builder (new)
+
+Super Admin can create/edit/delete/activate/deactivate **Campaigns** (e.g. Freight Services,
+Warehousing, Sea Freight) from the new **Campaign Form Builder** sidebar item, and build a
+custom lead-capture form per campaign — no code or JSON files involved, everything is done
+through the CRM UI and stored in Firestore.
+
+**Fixed system fields** — Full Name, Mobile Number, Email — always appear on every Add Lead
+form and are never part of the Campaign Form Builder; they can't be edited, reordered, or
+deleted.
+
+When an Admin clicks **+ Add Lead**, they first pick a **Campaign Type**. The matching custom
+fields render instantly (no page refresh) below the system fields. Selecting **General / No
+Campaign** falls back to the original Service Needed / Company Name fields for backward
+compatibility with the existing lead workflow.
+
+New Firestore collections:
+- `campaigns/{campaignId}` → `name, active, createdAt, updatedAt, createdBy`
+- `campaignFields/{fieldId}` → `campaignId, fieldLabel, fieldType, required, placeholder, options[], displayOrder, helpText, defaultValue`
+
+Leads created through a campaign additionally store:
+- `campaignId`, `campaignName`
+- `campaignData` → `{ fieldId: value }`
+- `campaignFieldsMeta` → a **snapshot** of each field's label/type at the moment the lead was
+  created, so editing or deleting a campaign's fields later never changes how existing leads
+  display their data.
+
+Editing a campaign's fields only affects **future** leads — existing leads keep the exact
+values (and labels) they were created with. Deleting a campaign removes its field definitions
+but leads already created under it keep their `campaignData` untouched.
+
+Permissions: Super Admin manages campaigns/fields; Admins select a campaign and fill the form
+when adding a lead; Members only ever see the finished lead (via the 👁 View button, which
+opens a clean label/value Lead Details modal — Campaign Type, system fields, campaign details,
+then assignment/status info).

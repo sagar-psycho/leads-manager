@@ -75,7 +75,10 @@ service cloud.firestore {
             && request.resource.data.email        == resource.data.email
             && request.resource.data.companyName  == resource.data.companyName
             && request.resource.data.serviceNeeded == resource.data.serviceNeeded
-            && request.resource.data.slNo         == resource.data.slNo);
+            && request.resource.data.slNo         == resource.data.slNo
+            && request.resource.data.campaignId   == resource.data.campaignId
+            && request.resource.data.campaignName == resource.data.campaignName
+            && request.resource.data.campaignData == resource.data.campaignData);
     }
 
     // ── META (counters, round-robin) ─────────────────────────
@@ -158,6 +161,25 @@ service cloud.firestore {
     match /notifications/{docId} {
       allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
       allow create: if isStaff(); // Admins create notifications
+    }
+
+    // ── CAMPAIGNS (Campaign Form Builder) ─────────────────────
+    // Read: every active authenticated user (Admins need the list for
+    // the Add Lead "Campaign Type" dropdown; Members see campaignName
+    // already denormalized on their leads, but read access is harmless).
+    // Write (create/edit/delete/activate/deactivate): Super Admin only.
+    match /campaigns/{campaignId} {
+      allow read:                    if isSignedIn() && myUserDoc().data.active == true;
+      allow create, update, delete:  if isSuperAdmin();
+    }
+
+    // ── CAMPAIGN FIELDS (per-campaign custom lead fields) ─────
+    // Read: every active authenticated user (Admins need the field
+    // definitions to render the Add Lead form for the chosen campaign).
+    // Write: Super Admin only — enforced both here AND in the JS layer.
+    match /campaignFields/{fieldId} {
+      allow read:                    if isSignedIn() && myUserDoc().data.active == true;
+      allow create, update, delete:  if isSuperAdmin();
     }
   }
 }

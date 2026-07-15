@@ -53,6 +53,14 @@
       "fields": [
         { "fieldPath": "createdAt", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "campaignFields",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "campaignId",   "order": "ASCENDING" },
+        { "fieldPath": "displayOrder", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
