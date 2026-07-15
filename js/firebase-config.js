@@ -59,6 +59,11 @@
   const assignmentQueueRef = firestoreAvailable ? db.collection("assignmentQueue") : null;
   const auditLogRef = firestoreAvailable ? db.collection("auditLog") : null;
   const leavesRef = firestoreAvailable ? db.collection("leaves") : null;
+  const trainingCategoriesRef = firestoreAvailable ? db.collection("trainingCategories") : null;
+  const trainingsRef = firestoreAvailable ? db.collection("trainings") : null;
+  const trainingProgressRef = firestoreAvailable ? db.collection("trainingProgress") : null;
+  const certificatesRef = firestoreAvailable ? db.collection("certificates") : null;
+  const quizzesRef = firestoreAvailable ? db.collection("quizzes") : null;
 
   // Export all references globally
   window.usersRef = usersRef;
@@ -69,6 +74,11 @@
   window.assignmentQueueRef = assignmentQueueRef;
   window.auditLogRef = auditLogRef;
   window.leavesRef = leavesRef;
+  window.trainingCategoriesRef = trainingCategoriesRef;
+  window.trainingsRef = trainingsRef;
+  window.trainingProgressRef = trainingProgressRef;
+  window.certificatesRef = certificatesRef;
+  window.quizzesRef = quizzesRef;
 
   // Utility functions for checking service availability
   window.isFirestoreAvailable = function() { return firestoreAvailable; };

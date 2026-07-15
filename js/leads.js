@@ -181,43 +181,365 @@ const STATUS_BADGE_CLASS = {
 
 const UNCONTACTED_ALERT_MINUTES = 30; // fallback — overridden at runtime by getCRMSetting("leadRules.uncontactedAlertMinutes")
 
-let ALL_LEADS = [];       // full scoped dataset from snapshot
+// ============================================================
+// PAGINATION & DATA MANAGEMENT
+// ============================================================
+
+let ALL_LEADS = [];       // current page leads only (not full dataset)
 let ACTIVE_MEMBERS = [];  // cached active member list for dropdowns
 let toastedLeadIds = new Set(); // session-only, avoid repeat toast spam
+
+// Pagination state
+const PAGINATION_STATE = {
+  pageSize: parseInt(localStorage.getItem("leadsPageSize")) || 25,
+  currentPage: 1,
+  totalLeads: 0,
+  totalPages: 0,
+  firstVisible: null,
+  lastVisible: null,
+  hasNextPage: false,
+  hasPrevPage: false,
+  cursors: {}, // Store cursors for each page
+  isLoading: false,
+  currentFilters: {
+    status: "",
+    assignedTo: "",
+    search: "",
+    campaign: "",
+    dateFrom: "",
+    dateTo: ""
+  }
+};
+
+// Cache for pagination
+const PAGE_CACHE = new Map(); // Map<pageKey, {data, timestamp}>
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+// Detach function for current snapshot listener
+let currentLeadsListener = null;
+
+// ============================================================
+// PAGINATION HELPERS
+// ============================================================
+
+/**
+ * Generate cache key from current filters and page
+ */
+function getCacheKey(page, filters) {
+  const filterStr = JSON.stringify(filters);
+  return `page_${page}_${filterStr}_${PAGINATION_STATE.pageSize}`;
+}
+
+/**
+ * Get cached page if available and fresh
+ */
+function getCachedPage(page, filters) {
+  const key = getCacheKey(page, filters);
+  const cached = PAGE_CACHE.get(key);
+  
+  if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
+    return cached.data;
+  }
+  
+  // Clean expired cache
+  if (cached) {
+    PAGE_CACHE.delete(key);
+  }
+  
+  return null;
+}
+
+/**
+ * Cache page data
+ */
+function cachePage(page, filters, data) {
+  const key = getCacheKey(page, filters);
+  PAGE_CACHE.set(key, {
+    data: data,
+    timestamp: Date.now()
+  });
+  
+  // Limit cache size (keep last 10 pages)
+  if (PAGE_CACHE.size > 10) {
+    const firstKey = PAGE_CACHE.keys().next().value;
+    PAGE_CACHE.delete(firstKey);
+  }
+}
+
+/**
+ * Clear all cache (when filters change)
+ */
+function clearCache() {
+  PAGE_CACHE.clear();
+  PAGINATION_STATE.cursors = {};
+}
+
+/**
+ * Debounce function for search
+ */
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
 
 // ---------------- LOAD / SUBSCRIBE ----------------
 async function loadLeadsView() {
   await refreshActiveMembers();
+  await loadUserTablePreferences(); // Load user preferences first
   buildLeadFilterUI();
-
-  // Sort by slNo descending so the highest (newest) serial number is always
-  // first. Firestore returns documents in this order server-side, so there is
-  // no flash of wrong order and no client-side re-sort is required.
-  //
-  // Admin / Super Admin  →  leadsRef.orderBy("slNo", "desc")
-  //   Single-field index — Firestore creates it automatically.
-  //
-  // Member               →  where("assignedTo") + orderBy("slNo", "desc")
-  //   Requires a composite index. Defined in firestore.indexes.json.
-  //   If the index is not yet built, Firestore will print a direct
-  //   creation link in the browser console on the first run.
-  let query = leadsRef.orderBy("slNo", "desc");
-  if (CURRENT_USER.role === "member") {
-    query = leadsRef
-      .where("assignedTo", "==", CURRENT_USER.uid)
-      .orderBy("slNo", "desc");
-  }
-
-  query.onSnapshot((snap) => {
-    ALL_LEADS = [];
-    snap.forEach((doc) => ALL_LEADS.push({ id: doc.id, ...doc.data() }));
-    // Firestore already returns docs in slNo desc order.
-    // No client-side sort needed.
-    renderLeadsTable();
-    checkReminders(); // re-evaluate whenever data changes
-    if (typeof refreshCampaignAnalyticsIfVisible === "function") refreshCampaignAnalyticsIfVisible();
-  }, (err) => console.error("Leads snapshot error:", err));
+  buildPaginationControls();
+  
+  // Load first page
+  await loadLeadsPage(1);
 }
+
+/**
+ * Load leads for specific page with Firestore pagination
+ */
+async function loadLeadsPage(page, direction = "next") {
+  if (PAGINATION_STATE.isLoading) return;
+  
+  PAGINATION_STATE.isLoading = true;
+  PAGINATION_STATE.currentPage = page;
+  
+  // Show loading state
+  renderLoadingState();
+  
+  try {
+    // Check cache first
+    const cached = getCachedPage(page, PAGINATION_STATE.currentFilters);
+    if (cached) {
+      console.log(`Loading page ${page} from cache`);
+      processCachedPage(cached);
+      return;
+    }
+    
+    // Build Firestore query with filters
+    let query = buildFirestoreQuery();
+    
+    // Apply pagination cursors
+    if (page > 1 && direction === "next" && PAGINATION_STATE.lastVisible) {
+      query = query.startAfter(PAGINATION_STATE.lastVisible);
+    } else if (page > 1 && direction === "prev" && PAGINATION_STATE.firstVisible) {
+      // For previous page, we need to query in reverse and flip results
+      query = query.endBefore(PAGINATION_STATE.firstVisible).limitToLast(PAGINATION_STATE.pageSize);
+    }
+    
+    // Add limit
+    if (direction !== "prev") {
+      query = query.limit(PAGINATION_STATE.pageSize);
+    }
+    
+    // Execute query
+    const snapshot = await query.get();
+    
+    // Process results
+    ALL_LEADS = [];
+    snapshot.forEach((doc) => {
+      ALL_LEADS.push({ id: doc.id, ...doc.data() });
+    });
+    
+    // Store cursors
+    if (snapshot.docs.length > 0) {
+      PAGINATION_STATE.firstVisible = snapshot.docs[0];
+      PAGINATION_STATE.lastVisible = snapshot.docs[snapshot.docs.length - 1];
+      
+      // Store cursor for this page
+      PAGINATION_STATE.cursors[page] = {
+        first: snapshot.docs[0],
+        last: snapshot.docs[snapshot.docs.length - 1]
+      };
+    }
+    
+    // Check if there's a next page
+    const nextQuery = query.startAfter(PAGINATION_STATE.lastVisible).limit(1);
+    const nextSnapshot = await nextQuery.get();
+    PAGINATION_STATE.hasNextPage = !nextSnapshot.empty;
+    PAGINATION_STATE.hasPrevPage = page > 1;
+    
+    // Get total count (expensive, only on first load or filter change)
+    if (page === 1 || PAGINATION_STATE.totalLeads === 0) {
+      await updateTotalCount();
+    }
+    
+    // Calculate total pages
+    PAGINATION_STATE.totalPages = Math.ceil(PAGINATION_STATE.totalLeads / PAGINATION_STATE.pageSize);
+    
+    // Cache this page
+    cachePage(page, PAGINATION_STATE.currentFilters, {
+      leads: ALL_LEADS,
+      firstVisible: PAGINATION_STATE.firstVisible,
+      lastVisible: PAGINATION_STATE.lastVisible,
+      hasNextPage: PAGINATION_STATE.hasNextPage,
+      hasPrevPage: PAGINATION_STATE.hasPrevPage
+    });
+    
+    // Render
+    renderLeadsTable();
+    updatePaginationUI();
+    checkReminders();
+    
+    if (typeof refreshCampaignAnalyticsIfVisible === "function") {
+      refreshCampaignAnalyticsIfVisible();
+    }
+    
+  } catch (error) {
+    console.error("Error loading leads page:", error);
+    renderErrorState(error);
+  } finally {
+    PAGINATION_STATE.isLoading = false;
+  }
+}
+
+/**
+ * Build Firestore query with current filters
+ */
+function buildFirestoreQuery() {
+  let query = leadsRef;
+  
+  // Role-based filtering
+  if (CURRENT_USER.role === "member") {
+    query = query.where("assignedTo", "==", CURRENT_USER.uid);
+  }
+  
+  // Status filter
+  if (PAGINATION_STATE.currentFilters.status) {
+    query = query.where("status", "==", PAGINATION_STATE.currentFilters.status);
+  }
+  
+  // Assigned To filter (Admin/Super Admin only)
+  if (PAGINATION_STATE.currentFilters.assignedTo && CURRENT_USER.role !== "member") {
+    query = query.where("assignedTo", "==", PAGINATION_STATE.currentFilters.assignedTo);
+  }
+  
+  // Campaign filter
+  if (PAGINATION_STATE.currentFilters.campaign) {
+    query = query.where("campaignName", "==", PAGINATION_STATE.currentFilters.campaign);
+  }
+  
+  // Date range filter
+  if (PAGINATION_STATE.currentFilters.dateFrom) {
+    const fromDate = firebase.firestore.Timestamp.fromDate(
+      new Date(PAGINATION_STATE.currentFilters.dateFrom + "T00:00:00")
+    );
+    query = query.where("createdAt", ">=", fromDate);
+  }
+  
+  if (PAGINATION_STATE.currentFilters.dateTo) {
+    const toDate = firebase.firestore.Timestamp.fromDate(
+      new Date(PAGINATION_STATE.currentFilters.dateTo + "T23:59:59")
+    );
+    query = query.where("createdAt", "<=", toDate);
+  }
+  
+  // Always order by createdAt descending (newest first)
+  // Note: Changed from slNo to createdAt for better index compatibility
+  query = query.orderBy("createdAt", "desc");
+  
+  return query;
+}
+
+/**
+ * Update total count (expensive operation, use sparingly)
+ */
+async function updateTotalCount() {
+  try {
+    let countQuery = leadsRef;
+    
+    // Apply same filters as main query
+    if (CURRENT_USER.role === "member") {
+      countQuery = countQuery.where("assignedTo", "==", CURRENT_USER.uid);
+    }
+    
+    if (PAGINATION_STATE.currentFilters.status) {
+      countQuery = countQuery.where("status", "==", PAGINATION_STATE.currentFilters.status);
+    }
+    
+    if (PAGINATION_STATE.currentFilters.assignedTo && CURRENT_USER.role !== "member") {
+      countQuery = countQuery.where("assignedTo", "==", PAGINATION_STATE.currentFilters.assignedTo);
+    }
+    
+    if (PAGINATION_STATE.currentFilters.campaign) {
+      countQuery = countQuery.where("campaignName", "==", PAGINATION_STATE.currentFilters.campaign);
+    }
+    
+    if (PAGINATION_STATE.currentFilters.dateFrom) {
+      const fromDate = firebase.firestore.Timestamp.fromDate(
+        new Date(PAGINATION_STATE.currentFilters.dateFrom + "T00:00:00")
+      );
+      countQuery = countQuery.where("createdAt", ">=", fromDate);
+    }
+    
+    if (PAGINATION_STATE.currentFilters.dateTo) {
+      const toDate = firebase.firestore.Timestamp.fromDate(
+        new Date(PAGINATION_STATE.currentFilters.dateTo + "T23:59:59")
+      );
+      countQuery = countQuery.where("createdAt", "<=", toDate);
+    }
+    
+    // Get count
+    const snapshot = await countQuery.get();
+    PAGINATION_STATE.totalLeads = snapshot.size;
+    
+  } catch (error) {
+    console.error("Error getting total count:", error);
+    PAGINATION_STATE.totalLeads = 0;
+  }
+}
+
+/**
+ * Process cached page data
+ */
+function processCachedPage(cached) {
+  ALL_LEADS = cached.leads;
+  PAGINATION_STATE.firstVisible = cached.firstVisible;
+  PAGINATION_STATE.lastVisible = cached.lastVisible;
+  PAGINATION_STATE.hasNextPage = cached.hasNextPage;
+  PAGINATION_STATE.hasPrevPage = cached.hasPrevPage;
+  
+  renderLeadsTable();
+  updatePaginationUI();
+  checkReminders();
+  
+  PAGINATION_STATE.isLoading = false;
+}
+
+/**
+ * Handle filter change
+ */
+async function onFilterChange() {
+  // Clear cache when filters change
+  clearCache();
+  
+  // Reset to page 1
+  PAGINATION_STATE.currentPage = 1;
+  PAGINATION_STATE.totalLeads = 0;
+  
+  // Load first page with new filters
+  await loadLeadsPage(1);
+}
+
+/**
+ * Debounced search handler
+ */
+const debouncedSearch = debounce(async (searchTerm) => {
+  // For search, we need client-side filtering since Firestore doesn't support
+  // full-text search. Load more results and filter client-side.
+  PAGINATION_STATE.currentFilters.search = searchTerm.toLowerCase();
+  renderLeadsTable(); // Filter current page immediately
+  
+  // If search is cleared, reload from server
+  if (!searchTerm) {
+    await onFilterChange();
+  }
+}, 300);
 
 async function refreshActiveMembers() {
   const snap = await usersRef.where("role", "==", "member").where("active", "==", true).get();
@@ -756,44 +1078,253 @@ function buildLeadFilterUI() {
   ).join("");
 
   wrap.innerHTML = `
-    <div class="row g-2 align-items-end mb-3">
-      <div class="col-6 col-md-3">
-        <label class="form-label small mb-1">Status</label>
-        <select id="filterStatus" class="form-select form-select-sm">
-          <option value="">All Statuses</option>
-          ${STATUS_LIST.map((s) => `<option value="${s}">${s}</option>`).join("")}
-        </select>
+    <div class="leads-filter-sticky">
+      <div class="row g-2 align-items-end mb-2">
+        <div class="col-6 col-md-2">
+          <label class="form-label small mb-1">Status</label>
+          <select id="filterStatus" class="form-select form-select-sm">
+            <option value="">All Statuses</option>
+            ${STATUS_LIST.map((s) => `<option value="${s}">${s}</option>`).join("")}
+            ${SYSTEM_STATUSES.map((s) => `<option value="${s}">${s}</option>`).join("")}
+          </select>
+        </div>
+        ${showMemberFilter ? `
+        <div class="col-6 col-md-2">
+          <label class="form-label small mb-1">Assigned To</label>
+          <select id="filterMember" class="form-select form-select-sm">
+            <option value="">All Members</option>
+            ${memberOptions}
+          </select>
+        </div>` : ""}
+        <div class="col-6 col-md-2">
+          <label class="form-label small mb-1">Campaign</label>
+          <select id="filterCampaign" class="form-select form-select-sm">
+            <option value="">All Campaigns</option>
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label small mb-1">From Date</label>
+          <input id="filterDateFrom" type="date" class="form-control form-control-sm">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label small mb-1">To Date</label>
+          <input id="filterDateTo" type="date" class="form-control form-control-sm">
+        </div>
+        <div class="col-6 col-md-${showMemberFilter ? '2' : '4'}">
+          <label class="form-label small mb-1">Search</label>
+          <input id="filterSearch" type="text" class="form-control form-control-sm" placeholder="Name, phone, company...">
+        </div>
       </div>
-      ${showMemberFilter ? `
-      <div class="col-6 col-md-3">
-        <label class="form-label small mb-1">Assigned To</label>
-        <select id="filterMember" class="form-select form-select-sm">
-          <option value="">All Members</option>
-          ${memberOptions}
-        </select>
-      </div>` : ""}
-      <div class="col-6 col-md-3">
-        <label class="form-label small mb-1">Search</label>
-        <input id="filterSearch" type="text" class="form-control form-control-sm" placeholder="Name, phone, company...">
-      </div>
-      <div class="col-6 col-md-3">
-        <button class="btn btn-sm btn-outline-secondary w-100" onclick="clearLeadFilters()">Clear Filters</button>
+      <div class="row g-2 mb-3">
+        <div class="col-auto">
+          <button class="btn btn-sm btn-outline-secondary" onclick="clearLeadFilters()">
+            <i class="bi bi-x-circle me-1"></i>Clear Filters
+          </button>
+        </div>
+        <div class="col-auto ms-auto">
+          <div class="d-flex align-items-center gap-2">
+            <span class="small text-muted">Show:</span>
+            <select id="pageSizeSelector" class="form-select form-select-sm" style="width: auto;">
+              <option value="25" ${PAGINATION_STATE.pageSize === 25 ? 'selected' : ''}>25</option>
+              <option value="50" ${PAGINATION_STATE.pageSize === 50 ? 'selected' : ''}>50</option>
+              <option value="100" ${PAGINATION_STATE.pageSize === 100 ? 'selected' : ''}>100</option>
+            </select>
+            <span class="small text-muted">per page</span>
+          </div>
+        </div>
       </div>
     </div>`;
 
-  wrap.querySelectorAll("select, input").forEach((el) => {
-    el.addEventListener("input", renderLeadsTable);
+  // Populate campaign filter
+  if (typeof ALL_CAMPAIGNS !== 'undefined' && ALL_CAMPAIGNS) {
+    const campaignSelect = document.getElementById("filterCampaign");
+    if (campaignSelect) {
+      ALL_CAMPAIGNS.forEach(c => {
+        if (c.active) {
+          const option = document.createElement("option");
+          option.value = c.name;
+          option.textContent = c.name;
+          campaignSelect.appendChild(option);
+        }
+      });
+    }
+  }
+
+  // Attach event listeners
+  document.getElementById("filterStatus")?.addEventListener("change", async (e) => {
+    PAGINATION_STATE.currentFilters.status = e.target.value;
+    await onFilterChange();
+  });
+
+  document.getElementById("filterMember")?.addEventListener("change", async (e) => {
+    PAGINATION_STATE.currentFilters.assignedTo = e.target.value;
+    await onFilterChange();
+  });
+
+  document.getElementById("filterCampaign")?.addEventListener("change", async (e) => {
+    PAGINATION_STATE.currentFilters.campaign = e.target.value;
+    await onFilterChange();
+  });
+
+  document.getElementById("filterDateFrom")?.addEventListener("change", async (e) => {
+    PAGINATION_STATE.currentFilters.dateFrom = e.target.value;
+    await onFilterChange();
+  });
+
+  document.getElementById("filterDateTo")?.addEventListener("change", async (e) => {
+    PAGINATION_STATE.currentFilters.dateTo = e.target.value;
+    await onFilterChange();
+  });
+
+  document.getElementById("filterSearch")?.addEventListener("input", (e) => {
+    debouncedSearch(e.target.value);
+  });
+
+  document.getElementById("pageSizeSelector")?.addEventListener("change", async (e) => {
+    PAGINATION_STATE.pageSize = parseInt(e.target.value);
+    localStorage.setItem("leadsPageSize", PAGINATION_STATE.pageSize);
+    await onFilterChange();
   });
 }
 
 function clearLeadFilters() {
-  const status = document.getElementById("filterStatus");
-  const member = document.getElementById("filterMember");
-  const search = document.getElementById("filterSearch");
-  if (status) status.value = "";
-  if (member) member.value = "";
-  if (search) search.value = "";
-  renderLeadsTable();
+  document.getElementById("filterStatus").value = "";
+  document.getElementById("filterMember")?.value && (document.getElementById("filterMember").value = "");
+  document.getElementById("filterCampaign").value = "";
+  document.getElementById("filterDateFrom").value = "";
+  document.getElementById("filterDateTo").value = "";
+  document.getElementById("filterSearch").value = "";
+  
+  PAGINATION_STATE.currentFilters = {
+    status: "",
+    assignedTo: "",
+    search: "",
+    campaign: "",
+    dateFrom: "",
+    dateTo: ""
+  };
+  
+  onFilterChange();
+}
+
+// ---------------- PAGINATION CONTROLS ----------------
+function buildPaginationControls() {
+  const container = document.getElementById("leadFilters");
+  if (!container) return;
+  
+  // Add pagination UI container after filters
+  const paginationHTML = `
+    <div id="paginationControls" class="d-flex justify-content-between align-items-center mb-3">
+      <div id="paginationInfo" class="small text-muted"></div>
+      <div id="paginationButtons"></div>
+    </div>
+  `;
+  
+  // Check if pagination controls already exist
+  if (!document.getElementById("paginationControls")) {
+    container.insertAdjacentHTML("afterend", paginationHTML);
+  }
+}
+
+function updatePaginationUI() {
+  const info = document.getElementById("paginationInfo");
+  const buttons = document.getElementById("paginationButtons");
+  
+  if (!info || !buttons) return;
+  
+  // Calculate range
+  const start = (PAGINATION_STATE.currentPage - 1) * PAGINATION_STATE.pageSize + 1;
+  const end = Math.min(start + ALL_LEADS.length - 1, PAGINATION_STATE.totalLeads);
+  
+  // Update info
+  if (ALL_LEADS.length > 0) {
+    info.innerHTML = `Showing <strong>${start}</strong> – <strong>${end}</strong> of <strong>${PAGINATION_STATE.totalLeads}</strong> leads`;
+  } else {
+    info.innerHTML = `No leads found`;
+  }
+  
+  // Build pagination buttons
+  const totalPages = PAGINATION_STATE.totalPages;
+  const currentPage = PAGINATION_STATE.currentPage;
+  
+  let buttonsHTML = '<nav><ul class="pagination pagination-sm mb-0">';
+  
+  // Previous button
+  buttonsHTML += `
+    <li class="page-item ${!PAGINATION_STATE.hasPrevPage || PAGINATION_STATE.isLoading ? 'disabled' : ''}">
+      <a class="page-link" href="#" onclick="navigateToPage(${currentPage - 1}, 'prev'); return false;">
+        <i class="bi bi-chevron-left"></i> Previous
+      </a>
+    </li>
+  `;
+  
+  // Page numbers
+  const maxButtons = 7;
+  let startPage = Math.max(1, currentPage - Math.floor(maxButtons / 2));
+  let endPage = Math.min(totalPages, startPage + maxButtons - 1);
+  
+  // Adjust if we're near the end
+  if (endPage - startPage < maxButtons - 1) {
+    startPage = Math.max(1, endPage - maxButtons + 1);
+  }
+  
+  // First page
+  if (startPage > 1) {
+    buttonsHTML += `
+      <li class="page-item">
+        <a class="page-link" href="#" onclick="navigateToPage(1); return false;">1</a>
+      </li>
+    `;
+    if (startPage > 2) {
+      buttonsHTML += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+    }
+  }
+  
+  // Page range
+  for (let i = startPage; i <= endPage; i++) {
+    buttonsHTML += `
+      <li class="page-item ${i === currentPage ? 'active' : ''}">
+        <a class="page-link" href="#" onclick="navigateToPage(${i}); return false;">${i}</a>
+      </li>
+    `;
+  }
+  
+  // Last page
+  if (endPage < totalPages) {
+    if (endPage < totalPages - 1) {
+      buttonsHTML += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+    }
+    buttonsHTML += `
+      <li class="page-item">
+        <a class="page-link" href="#" onclick="navigateToPage(${totalPages}); return false;">${totalPages}</a>
+      </li>
+    `;
+  }
+  
+  // Next button
+  buttonsHTML += `
+    <li class="page-item ${!PAGINATION_STATE.hasNextPage || PAGINATION_STATE.isLoading ? 'disabled' : ''}">
+      <a class="page-link" href="#" onclick="navigateToPage(${currentPage + 1}, 'next'); return false;">
+        Next <i class="bi bi-chevron-right"></i>
+      </a>
+    </li>
+  `;
+  
+  buttonsHTML += '</ul></nav>';
+  buttons.innerHTML = buttonsHTML;
+}
+
+/**
+ * Navigate to specific page
+ */
+async function navigateToPage(page, direction = "next") {
+  if (PAGINATION_STATE.isLoading) return;
+  if (page < 1 || page > PAGINATION_STATE.totalPages) return;
+  
+  await loadLeadsPage(page, direction);
+  
+  // Scroll to top of table
+  document.querySelector(".table-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 // ---------------- RENDER: LEADS TABLE ----------------
@@ -801,56 +1332,470 @@ function renderLeadsTable() {
   const tbody = document.getElementById("leadsTableBody");
   if (!tbody) return;
 
-  const statusFilter = document.getElementById("filterStatus")?.value || "";
-  const memberFilter = document.getElementById("filterMember")?.value || "";
-  const searchFilter = (document.getElementById("filterSearch")?.value || "").toLowerCase();
-
-  let rows = ALL_LEADS.filter((l) => {
-    if (statusFilter && l.status !== statusFilter) return false;
-    if (memberFilter && l.assignedTo !== memberFilter) return false;
-    if (searchFilter) {
+  // Apply client-side search filter if present
+  let rows = ALL_LEADS;
+  const searchFilter = PAGINATION_STATE.currentFilters.search;
+  
+  if (searchFilter) {
+    rows = rows.filter((l) => {
       const hay = `${l.fullName} ${l.phoneNumber} ${l.companyName} ${l.email}`.toLowerCase();
-      if (!hay.includes(searchFilter)) return false;
-    }
-    return true;
-  });
+      return hay.includes(searchFilter);
+    });
+  }
 
   if (rows.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="10" class="text-center text-muted py-4">No leads found.</td></tr>`;
+    renderEmptyState();
     return;
   }
+
+  // Get user preferences
+  const prefs = getUserTablePreferences();
+  const showCampaign = prefs.showCampaign !== false;
+  const showAssigned = prefs.showAssigned !== false;
+  const colCount = 6 + (showCampaign ? 1 : 0) + (showAssigned ? 1 : 0);
 
   const canEditDelete = CURRENT_USER.role === "superadmin";
   tbody.innerHTML = rows.map((l) => {
     const created = l.createdAt ? l.createdAt.toDate() : new Date();
     const uncontactedOverdue = isUncontactedOverdue(l);
     const isPending = !!l.assignmentPending;
+    const phone = normalisePhone(l.phoneNumber);
+    
+    // Truncate long names
+    const fullName = escapeHtml(l.fullName);
+    const displayName = fullName.length > 25 ? fullName.substring(0, 22) + '...' : fullName;
+    const nameTitle = fullName.length > 25 ? fullName : '';
+    
+    // Truncate campaign name
+    const campaignName = escapeHtml(l.campaignName || l.serviceNeeded || "General");
+    const displayCampaign = campaignName.length > 20 ? campaignName.substring(0, 17) + '...' : campaignName;
+    const campaignTitle = campaignName.length > 20 ? campaignName : '';
+    
+    // Status badge with attempt count
+    let statusBadgeHTML = `<span class="status-badge ${STATUS_BADGE_CLASS[l.status] || ""}">${l.status}</span>`;
+    
+    if (l.status === "Not Picking Call" && l.consecutiveNotPickingAttempts) {
+      const maxAttempts = getCRMSetting("maxConsecutiveNotPickingAttempts") || 3;
+      statusBadgeHTML += `<div class="small text-muted mt-1">
+        <span class="badge badge-attempt">Attempt ${l.consecutiveNotPickingAttempts}/${maxAttempts}</span>
+      </div>`;
+    } else if (l.status === "No Response") {
+      statusBadgeHTML += `<div class="small text-muted mt-1">
+        <span class="badge badge-system">System Generated</span>
+      </div>`;
+    }
+    
+    if (uncontactedOverdue) {
+      statusBadgeHTML += '<div class="small text-danger mt-1"><i class="bi bi-alarm"></i> Overdue</div>';
+    }
+    
     return `
     <tr class="${uncontactedOverdue ? "row-urgent" : ""}">
-      <td>${l.slNo}</td>
-      <td>${formatDateTime(created)}</td>
-      <td>${escapeHtml(l.fullName)}</td>
-      <td>${escapeHtml(l.companyName || "-")}</td>
-      <td>${escapeHtml(l.phoneNumber)}</td>
-      <td>${escapeHtml(l.email || "-")}</td>
-      <td>${escapeHtml(l.campaignName || l.serviceNeeded || "General")}</td>
+      <td class="text-center"><span class="badge bg-light text-dark">${l.slNo || '—'}</span></td>
+      <td class="text-nowrap small">${formatDateTime(created)}</td>
       <td>
-        ${isPending
-          ? `<span class="badge badge-pending-assignment"><i class="bi bi-hourglass-split me-1"></i>Pending Assignment</span>`
-          : escapeHtml(l.assignedToName || "-")}
-      </td>
-      <td><span class="status-badge ${STATUS_BADGE_CLASS[l.status] || ""}">${l.status}</span>
-        ${uncontactedOverdue ? '<div class="small text-danger mt-1"><i class="bi bi-alarm"></i> Overdue</div>' : ""}
+        <div class="customer-cell" ${nameTitle ? `title="${nameTitle}"` : ''}>
+          <div class="fw-semibold">${displayName}</div>
+          ${l.companyName ? `<div class="small text-muted text-truncate">${escapeHtml(l.companyName).substring(0, 30)}</div>` : ''}
+        </div>
       </td>
       <td class="text-nowrap">
-        ${isPending ? "" : `<button class="btn btn-sm btn-primary" onclick="openStatusModal('${l.id}')"><i class="bi bi-pencil-square"></i> Update</button>`}
-        <button class="btn btn-sm btn-outline-secondary" onclick="openLeadDetailsModal('${l.id}')" title="View Details"><i class="bi bi-eye"></i></button>
-        <button class="btn btn-sm btn-outline-secondary" onclick="openHistoryModal('${l.id}')" title="History"><i class="bi bi-clock-history"></i></button>
-        ${isPending ? "" : `<button class="btn btn-sm btn-ai-pitch" onclick="openSalesPitchModal('${l.id}')" title="AI Sales Pitch"><i class="bi bi-robot"></i> AI Pitch</button>`}
-        ${canEditDelete ? `<button class="btn btn-sm btn-outline-danger" onclick="confirmDeleteLead('${l.id}')"><i class="bi bi-trash"></i></button>` : ""}
+        <a href="tel:${l.phoneNumber}" class="text-decoration-none">
+          <i class="bi bi-telephone me-1"></i>${escapeHtml(l.phoneNumber)}
+        </a>
+      </td>
+      ${showCampaign ? `<td class="col-campaign" ${campaignTitle ? `title="${campaignTitle}"` : ''}>${displayCampaign}</td>` : ''}
+      ${showAssigned ? `<td class="col-assigned">
+        ${isPending
+          ? `<span class="badge badge-pending-assignment"><i class="bi bi-hourglass-split me-1"></i>Pending</span>`
+          : `<span class="text-truncate d-inline-block" style="max-width: 150px;" title="${escapeHtml(l.assignedToName || 'Unassigned')}">${escapeHtml(l.assignedToName || "—")}</span>`}
+      </td>` : ''}
+      <td>${statusBadgeHTML}</td>
+      <td class="text-center">
+        <div class="action-buttons">
+          <button class="btn btn-icon btn-sm btn-outline-secondary" onclick="openLeadDetailsModal('${l.id}')" 
+                  title="View Details" data-bs-toggle="tooltip">
+            <i class="bi bi-eye"></i>
+          </button>
+          ${isPending ? '' : `
+          <button class="btn btn-icon btn-sm btn-primary" onclick="openStatusModal('${l.id}')" 
+                  title="Update Status" data-bs-toggle="tooltip">
+            <i class="bi bi-pencil-square"></i>
+          </button>
+          `}
+          ${phone ? `
+          <a href="tel:${phone}" class="btn btn-icon btn-sm btn-success" 
+             title="Call" data-bs-toggle="tooltip">
+            <i class="bi bi-telephone-fill"></i>
+          </a>
+          <a href="https://wa.me/${phone}" target="_blank" rel="noopener noreferrer" 
+             class="btn btn-icon btn-sm btn-whatsapp" title="WhatsApp" data-bs-toggle="tooltip">
+            <i class="bi bi-whatsapp"></i>
+          </a>
+          ` : ''}
+          <button class="btn btn-icon btn-sm btn-outline-secondary" onclick="openHistoryModal('${l.id}')" 
+                  title="History" data-bs-toggle="tooltip">
+            <i class="bi bi-clock-history"></i>
+          </button>
+          ${isPending ? '' : `
+          <button class="btn btn-icon btn-sm btn-ai-pitch" onclick="openSalesPitchModal('${l.id}')" 
+                  title="AI Sales Pitch" data-bs-toggle="tooltip">
+            <i class="bi bi-robot"></i>
+          </button>
+          `}
+          ${canEditDelete ? `
+          <button class="btn btn-icon btn-sm btn-outline-danger" onclick="confirmDeleteLead('${l.id}')" 
+                  title="Delete" data-bs-toggle="tooltip">
+            <i class="bi bi-trash"></i>
+          </button>
+          ` : ''}
+        </div>
       </td>
     </tr>`;
   }).join("");
+  
+  // Initialize Bootstrap tooltips
+  initializeTooltips();
+}
+
+/**
+ * Initialize Bootstrap tooltips for action buttons
+ */
+function initializeTooltips() {
+  // Destroy existing tooltips first
+  const existingTooltips = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+  existingTooltips.forEach(el => {
+    const tooltip = bootstrap.Tooltip.getInstance(el);
+    if (tooltip) tooltip.dispose();
+  });
+  
+  // Initialize new tooltips
+  const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+  tooltipTriggerList.map(function (tooltipTriggerEl) {
+    return new bootstrap.Tooltip(tooltipTriggerEl, {
+      delay: { show: 500, hide: 100 }
+    });
+  });
+}
+
+/**
+ * Render loading state with skeleton rows
+ */
+function renderLoadingState() {
+  const tbody = document.getElementById("leadsTableBody");
+  if (!tbody) return;
+  
+  // Get user preferences for column count
+  const prefs = getUserTablePreferences();
+  const showCampaign = prefs.showCampaign !== false;
+  const showAssigned = prefs.showAssigned !== false;
+  const colCount = 6 + (showCampaign ? 1 : 0) + (showAssigned ? 1 : 0);
+  
+  const skeletonRows = Array(5).fill(0).map(() => {
+    let cols = `
+      <td><div class="skeleton-text" style="width: 50px;"></div></td>
+      <td><div class="skeleton-text" style="width: 120px;"></div></td>
+      <td><div class="skeleton-text" style="width: 150px;"></div></td>
+      <td><div class="skeleton-text" style="width: 120px;"></div></td>`;
+    
+    if (showCampaign) {
+      cols += `<td><div class="skeleton-text" style="width: 140px;"></div></td>`;
+    }
+    
+    if (showAssigned) {
+      cols += `<td><div class="skeleton-text" style="width: 140px;"></div></td>`;
+    }
+    
+    cols += `
+      <td><div class="skeleton-text" style="width: 100px;"></div></td>
+      <td><div class="skeleton-text" style="width: 200px;"></div></td>`;
+    
+    return `<tr>${cols}</tr>`;
+  }).join("");
+  
+  tbody.innerHTML = skeletonRows;
+}
+
+/**
+ * Render empty state
+ */
+function renderEmptyState() {
+  const tbody = document.getElementById("leadsTableBody");
+  if (!tbody) return;
+  
+  // Get column count based on preferences
+  const prefs = getUserTablePreferences();
+  const showCampaign = prefs.showCampaign !== false;
+  const showAssigned = prefs.showAssigned !== false;
+  const colCount = 6 + (showCampaign ? 1 : 0) + (showAssigned ? 1 : 0);
+  
+  const hasFilters = PAGINATION_STATE.currentFilters.status ||
+                     PAGINATION_STATE.currentFilters.assignedTo ||
+                     PAGINATION_STATE.currentFilters.search ||
+                     PAGINATION_STATE.currentFilters.campaign ||
+                     PAGINATION_STATE.currentFilters.dateFrom ||
+                     PAGINATION_STATE.currentFilters.dateTo;
+  
+  tbody.innerHTML = `
+    <tr>
+      <td colspan="${colCount}" class="text-center py-5">
+        <div class="empty-state">
+          <i class="bi bi-inbox" style="font-size: 64px; color: var(--text-muted); opacity: 0.5;"></i>
+          <h5 class="mt-3 mb-2 fw-bold">No Leads Found</h5>
+          <p class="text-muted mb-3">
+            ${hasFilters 
+              ? 'No leads match your current filters. Try adjusting your search criteria.' 
+              : 'No leads have been created yet. Click "Add Lead" to get started.'}
+          </p>
+          ${hasFilters ? `
+          <button class="btn btn-sm btn-primary" onclick="clearLeadFilters()">
+            <i class="bi bi-x-circle me-1"></i>Clear All Filters
+          </button>` : ''}
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+/**
+ * Render error state
+ */
+function renderErrorState(error) {
+  const tbody = document.getElementById("leadsTableBody");
+  if (!tbody) return;
+  
+  // Get column count based on preferences
+  const prefs = getUserTablePreferences();
+  const showCampaign = prefs.showCampaign !== false;
+  const showAssigned = prefs.showAssigned !== false;
+  const colCount = 6 + (showCampaign ? 1 : 0) + (showAssigned ? 1 : 0);
+  
+  tbody.innerHTML = `
+    <tr>
+      <td colspan="${colCount}" class="text-center py-5">
+        <div class="error-state">
+          <i class="bi bi-exclamation-triangle" style="font-size: 48px; color: #B23434;"></i>
+          <h5 class="mt-3 mb-2">Unable to Load Leads</h5>
+          <p class="text-muted small mb-3">${escapeHtml(error.message || 'An error occurred while loading leads.')}</p>
+          <button class="btn btn-sm btn-primary" onclick="loadLeadsPage(${PAGINATION_STATE.currentPage})">
+            <i class="bi bi-arrow-clockwise me-1"></i>Retry
+          </button>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+// ============================================================
+// TABLE PREFERENCES
+// ============================================================
+
+/**
+ * Get user table preferences (from cache or defaults)
+ */
+function getUserTablePreferences() {
+  // Return cached preferences if available
+  if (window.USER_TABLE_PREFS) {
+    return window.USER_TABLE_PREFS;
+  }
+  
+  // Return defaults
+  return {
+    showCampaign: true,
+    showAssigned: true,
+    tableDensity: "comfortable",
+    defaultPageSize: 25
+  };
+}
+
+/**
+ * Open table preferences modal
+ */
+function openTablePreferences() {
+  const prefs = getUserTablePreferences();
+  
+  // Populate modal with current preferences
+  document.getElementById("prefShowCampaign").checked = prefs.showCampaign !== false;
+  document.getElementById("prefShowAssigned").checked = prefs.showAssigned !== false;
+  document.getElementById("prefTableDensity").value = prefs.tableDensity || "comfortable";
+  document.getElementById("prefDefaultPageSize").value = prefs.defaultPageSize || PAGINATION_STATE.pageSize;
+  
+  // Show modal
+  const modal = new bootstrap.Modal(document.getElementById("tablePreferencesModal"));
+  modal.show();
+}
+
+/**
+ * Save table preferences to Firestore
+ */
+async function saveTablePreferences() {
+  const showCampaign = document.getElementById("prefShowCampaign").checked;
+  const showAssigned = document.getElementById("prefShowAssigned").checked;
+  const tableDensity = document.getElementById("prefTableDensity").value;
+  const defaultPageSize = parseInt(document.getElementById("prefDefaultPageSize").value);
+  
+  const preferences = {
+    showCampaign: showCampaign,
+    showAssigned: showAssigned,
+    tableDensity: tableDensity,
+    defaultPageSize: defaultPageSize
+  };
+  
+  try {
+    // Save to Firestore user document
+    await usersRef.doc(CURRENT_USER.uid).update({
+      tablePreferences: preferences
+    });
+    
+    // Update cache
+    window.USER_TABLE_PREFS = preferences;
+    
+    // Apply changes
+    applyTableDensity(tableDensity);
+    updateTableColumns();
+    
+    // Update page size if changed
+    if (defaultPageSize !== PAGINATION_STATE.pageSize) {
+      PAGINATION_STATE.pageSize = defaultPageSize;
+      localStorage.setItem("leadsPageSize", defaultPageSize);
+      
+      // Reload current page with new page size
+      clearCache();
+      await loadLeadsPage(1);
+    } else {
+      // Just re-render table
+      renderLeadsTable();
+    }
+    
+    // Close modal
+    const modal = bootstrap.Modal.getInstance(document.getElementById("tablePreferencesModal"));
+    modal.hide();
+    
+    toast("Table preferences saved successfully.", "success");
+    
+  } catch (error) {
+    console.error("Error saving table preferences:", error);
+    toast("Failed to save table preferences.", "danger");
+  }
+}
+
+/**
+ * Reset table preferences to defaults
+ */
+async function resetTablePreferences() {
+  if (!confirm("Reset table preferences to defaults?")) return;
+  
+  const defaults = {
+    showCampaign: true,
+    showAssigned: true,
+    tableDensity: "comfortable",
+    defaultPageSize: 25
+  };
+  
+  try {
+    // Save defaults to Firestore
+    await usersRef.doc(CURRENT_USER.uid).update({
+      tablePreferences: defaults
+    });
+    
+    // Update cache
+    window.USER_TABLE_PREFS = defaults;
+    
+    // Update modal
+    document.getElementById("prefShowCampaign").checked = true;
+    document.getElementById("prefShowAssigned").checked = true;
+    document.getElementById("prefTableDensity").value = "comfortable";
+    document.getElementById("prefDefaultPageSize").value = 25;
+    
+    // Apply changes
+    applyTableDensity("comfortable");
+    updateTableColumns();
+    
+    // Update page size
+    if (PAGINATION_STATE.pageSize !== 25) {
+      PAGINATION_STATE.pageSize = 25;
+      localStorage.setItem("leadsPageSize", 25);
+      clearCache();
+      await loadLeadsPage(1);
+    } else {
+      renderLeadsTable();
+    }
+    
+    toast("Table preferences reset to defaults.", "success");
+    
+  } catch (error) {
+    console.error("Error resetting table preferences:", error);
+    toast("Failed to reset table preferences.", "danger");
+  }
+}
+
+/**
+ * Apply table density class
+ */
+function applyTableDensity(density) {
+  const table = document.querySelector(".leads-table");
+  if (!table) return;
+  
+  // Remove all density classes
+  table.classList.remove("table-comfortable", "table-compact", "table-spacious");
+  
+  // Add selected density class
+  if (density === "compact") {
+    table.classList.add("table-compact");
+  } else if (density === "spacious") {
+    table.classList.add("table-spacious");
+  } else {
+    table.classList.add("table-comfortable");
+  }
+}
+
+/**
+ * Update table column visibility
+ */
+function updateTableColumns() {
+  const prefs = getUserTablePreferences();
+  const table = document.querySelector(".leads-table");
+  if (!table) return;
+  
+  // Show/hide Campaign column
+  const campaignHeaders = table.querySelectorAll(".col-campaign");
+  campaignHeaders.forEach(el => {
+    el.style.display = prefs.showCampaign !== false ? "" : "none";
+  });
+  
+  // Show/hide Assigned To column
+  const assignedHeaders = table.querySelectorAll(".col-assigned");
+  assignedHeaders.forEach(el => {
+    el.style.display = prefs.showAssigned !== false ? "" : "none";
+  });
+}
+
+/**
+ * Load user table preferences from Firestore on app initialization
+ */
+async function loadUserTablePreferences() {
+  try {
+    const userDoc = await usersRef.doc(CURRENT_USER.uid).get();
+    if (userDoc.exists) {
+      const userData = userDoc.data();
+      if (userData.tablePreferences) {
+        window.USER_TABLE_PREFS = userData.tablePreferences;
+        
+        // Apply preferences
+        applyTableDensity(userData.tablePreferences.tableDensity || "comfortable");
+        updateTableColumns();
+        
+        // Update page size if different
+        if (userData.tablePreferences.defaultPageSize && 
+            userData.tablePreferences.defaultPageSize !== PAGINATION_STATE.pageSize) {
+          PAGINATION_STATE.pageSize = userData.tablePreferences.defaultPageSize;
+          localStorage.setItem("leadsPageSize", userData.tablePreferences.defaultPageSize);
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Error loading table preferences:", error);
+  }
 }
 
 function isUncontactedOverdue(lead) {

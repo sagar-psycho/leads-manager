@@ -1,0 +1,152 @@
+// ============================================================
+// FIRESTORE SECURITY RULES - TRAINING SYSTEM
+// ============================================================
+// Add these rules to your existing firestore.rules file
+// ============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+    
+    function isAdmin() {
+      return getUserRole() in ['admin', 'superadmin'];
+    }
+    
+    function isSuperAdmin() {
+      return getUserRole() == 'superadmin';
+    }
+    
+    function isMember() {
+      return getUserRole() == 'member';
+    }
+    
+    // ============================================================
+    // TRAINING CATEGORIES
+    // ============================================================
+    match /trainingCategories/{categoryId} {
+      // Anyone authenticated can read active categories
+      allow read: if isAuthenticated();
+      
+      // Only admins can create categories
+      allow create: if isAdmin() &&
+                      request.resource.data.keys().hasAll(['name', 'order', 'active', 'createdBy', 'createdAt']) &&
+                      request.resource.data.createdBy == request.auth.uid;
+      
+      // Only admins can update categories
+      allow update: if isAdmin() &&
+                      request.resource.data.createdBy == resource.data.createdBy;
+      
+      // Only super admin can delete categories
+      allow delete: if isSuperAdmin();
+    }
+    
+    // ============================================================
+    // TRAININGS
+    // ============================================================
+    match /trainings/{trainingId} {
+      // Members can only read published trainings
+      // Admins can read all trainings (including drafts)
+      allow read: if isAuthenticated() && 
+                    (resource.data.status == 'published' || isAdmin());
+      
+      // Only admins can create trainings
+      allow create: if isAdmin() &&
+                      request.resource.data.keys().hasAll(['categoryId', 'title', 'status', 'sections', 'createdBy', 'createdAt']) &&
+                      request.resource.data.createdBy == request.auth.uid &&
+                      request.resource.data.status in ['draft', 'published', 'archived'];
+      
+      // Only admins can update trainings
+      // Cannot change createdBy
+      allow update: if isAdmin() &&
+                      request.resource.data.createdBy == resource.data.createdBy &&
+                      request.resource.data.status in ['draft', 'published', 'archived'];
+      
+      // Only super admin can delete trainings
+      allow delete: if isSuperAdmin();
+    }
+    
+    // ============================================================
+    // QUIZZES
+    // ============================================================
+    match /quizzes/{quizId} {
+      // Anyone authenticated can read quizzes (for taking quiz)
+      allow read: if isAuthenticated();
+      
+      // Only admins can create quizzes
+      allow create: if isAdmin() &&
+                      request.resource.data.keys().hasAll(['trainingId', 'title', 'questions', 'passingScore', 'createdBy', 'createdAt']) &&
+                      request.resource.data.createdBy == request.auth.uid &&
+                      request.resource.data.passingScore >= 0 &&
+                      request.resource.data.passingScore <= 100;
+      
+      // Only admins can update quizzes
+      allow update: if isAdmin() &&
+                      request.resource.data.createdBy == resource.data.createdBy &&
+                      request.resource.data.passingScore >= 0 &&
+                      request.resource.data.passingScore <= 100;
+      
+      // Only super admin can delete quizzes
+      allow delete: if isSuperAdmin();
+    }
+    
+    // ============================================================
+    // TRAINING PROGRESS
+    // ============================================================
+    match /trainingProgress/{progressId} {
+      // Users can only read their own progress
+      // Admins can read all progress (for reports)
+      allow read: if isAuthenticated() &&
+                    (resource.data.userId == request.auth.uid || isAdmin());
+      
+      // Users can only create progress for themselves
+      allow create: if isAuthenticated() &&
+                      request.resource.data.userId == request.auth.uid &&
+                      request.resource.data.keys().hasAll(['userId', 'trainingId', 'status', 'startedAt', 'lastViewedAt', 'sectionsCompleted', 'timeSpent']) &&
+                      request.resource.data.status in ['not_started', 'in_progress', 'completed'];
+      
+      // Users can only update their own progress
+      // Cannot change userId or trainingId
+      allow update: if isAuthenticated() &&
+                      resource.data.userId == request.auth.uid &&
+                      request.resource.data.userId == resource.data.userId &&
+                      request.resource.data.trainingId == resource.data.trainingId &&
+                      request.resource.data.status in ['not_started', 'in_progress', 'completed'];
+      
+      // Only super admin can delete progress
+      allow delete: if isSuperAdmin();
+    }
+    
+    // ============================================================
+    // CERTIFICATES
+    // ============================================================
+    match /certificates/{certId} {
+      // Users can only read their own certificates
+      // Admins can read all certificates
+      allow read: if isAuthenticated() &&
+                    (resource.data.userId == request.auth.uid || isAdmin());
+      
+      // Users can only create certificates for themselves
+      // Certificates are auto-generated after passing quiz
+      allow create: if isAuthenticated() &&
+                      request.resource.data.userId == request.auth.uid &&
+                      request.resource.data.keys().hasAll(['userId', 'userName', 'trainingId', 'trainingTitle', 'score', 'issuedAt']) &&
+                      request.resource.data.score >= 0 &&
+                      request.resource.data.score <= 100;
+      
+      // Certificates cannot be updated once issued
+      allow update: if false;
+      
+      // Only super admin can delete certificates
+      allow delete: if isSuperAdmin();
+    }
+  }
+}

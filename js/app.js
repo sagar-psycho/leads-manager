@@ -108,6 +108,10 @@ function buildNav() {
   html += `
     <a href="#" class="nav-link nav-item-link" data-view="leave">
       <i class="bi bi-calendar2-check"></i> Leave Management
+    </a>
+    <a href="#" class="nav-link nav-item-link" data-view="training">
+      <i class="bi bi-mortarboard-fill"></i> Sales Academy
+      ${isMember ? '<span id="trainingProgressBadge" class="badge bg-info ms-auto d-none"></span>' : ''}
     </a>`;
 
   if (!isMember) {
@@ -188,6 +192,17 @@ function showView(viewName) {
   if (viewName === "callaudit")   renderCallAuditDashboard();
   if (viewName === "campaigns")   renderCampaignsView();
   if (viewName === "campaignreports") renderCampaignReportsPanel();
+  if (viewName === "training") {
+    if (typeof loadTrainingView === "function") {
+      loadTrainingView();
+    } else {
+      console.error("Sales Academy module (training.js) not loaded");
+      const container = document.getElementById("trainingContentArea");
+      if (container) {
+        container.innerHTML = '<div class="alert alert-danger">Sales Academy module failed to load. Please refresh the page.</div>';
+      }
+    }
+  }
 }
 
 // ── Dashboard Cards ───────────────────────────────────────────

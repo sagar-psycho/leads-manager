@@ -46,32 +46,37 @@
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
           <div>
             <h1 class="page-title">Leads</h1>
-            <p class="page-subtitle">Raw leads for Abra Logistics — contact, update status, and log follow-ups.</p>
+            <p class="page-subtitle">Enterprise CRM — manage leads, track status, and schedule follow-ups.</p>
           </div>
-          <div id="addLeadBtnWrap"></div>
+          <div class="d-flex gap-2 align-items-center">
+            <button class="btn btn-sm btn-outline-secondary" onclick="openTablePreferences()" title="Table Settings">
+              <i class="bi bi-sliders"></i>
+            </button>
+            <div id="addLeadBtnWrap"></div>
+          </div>
         </div>
 
         <div id="leadFilters"></div>
 
-        <div class="table-card">
+        <div class="leads-table-container">
           <div class="table-responsive">
-            <table class="table align-middle table-hover mb-0">
+            <table class="table leads-table align-middle mb-0">
               <thead>
                 <tr>
-                  <th>Sl.No</th>
-                  <th>Date &amp; Time</th>
-                  <th>Full Name</th>
-                  <th>Company</th>
-                  <th>Phone</th>
-                  <th>Email</th>
-                  <th>Campaign Type</th>
-                  <th>Assigned To</th>
-                  <th>Status</th>
-                  <th>Actions</th>
+                  <th style="width: 70px;">Sl.No</th>
+                  <th style="width: 140px;">Date &amp; Time</th>
+                  <th style="width: 180px;">Customer Name</th>
+                  <th style="width: 130px;">Phone</th>
+                  <th style="width: 170px;" class="col-campaign">Campaign</th>
+                  <th style="width: 160px;" class="col-assigned">Assigned To</th>
+                  <th style="width: 150px;">Status</th>
+                  <th style="width: 250px;" class="text-center">Actions</th>
                 </tr>
               </thead>
               <tbody id="leadsTableBody">
-                <tr><td colspan="10" class="text-center py-4 text-muted">Loading leads...</td></tr>
+                <tr><td colspan="8" class="text-center py-4 text-muted">
+                  <div class="spinner-border spinner-border-sm me-2"></div>Loading leads...
+                </td></tr>
               </tbody>
             </table>
           </div>
@@ -263,11 +268,89 @@
         <!-- Rendered dynamically by campaign-reports.js → renderCampaignReportsPanel() -->
       </section>
 
+      <!-- SALES ACADEMY VIEW (All Roles) -->
+      <section id="view-training" class="view-section d-none">
+        <div id="trainingContentArea">
+          <div class="text-center py-5">
+            <div class="spinner-border text-primary"></div>
+            <p class="mt-2">Loading Sales Academy...</p>
+          </div>
+        </div>
+      </section>
+
     </main>
   </div>
 
   <!-- TOASTS -->
   <div id="toastContainer" class="toast-container position-fixed bottom-0 end-0 p-3"></div>
+
+  <!-- MODAL: Table Preferences -->
+  <div class="modal fade" id="tablePreferencesModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">
+            <i class="bi bi-sliders me-2"></i>Table Preferences
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted mb-3">
+            Customize which columns appear in your Leads table. Your preferences are saved automatically.
+          </p>
+          
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Visible Columns</label>
+            <div class="d-flex flex-column gap-2">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="prefShowCampaign" checked>
+                <label class="form-check-label" for="prefShowCampaign">
+                  Campaign
+                </label>
+              </div>
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="prefShowAssigned" checked>
+                <label class="form-check-label" for="prefShowAssigned">
+                  Assigned To
+                </label>
+              </div>
+            </div>
+          </div>
+          
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Table Density</label>
+            <select id="prefTableDensity" class="form-select form-select-sm">
+              <option value="comfortable">Comfortable (Default)</option>
+              <option value="compact">Compact</option>
+              <option value="spacious">Spacious</option>
+            </select>
+          </div>
+          
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Default Page Size</label>
+            <select id="prefDefaultPageSize" class="form-select form-select-sm">
+              <option value="25">25 leads per page</option>
+              <option value="50">50 leads per page</option>
+              <option value="100">100 leads per page</option>
+            </select>
+          </div>
+          
+          <div class="alert alert-info small mb-0">
+            <i class="bi bi-info-circle me-1"></i>
+            Your preferences are saved to your account and will apply across all devices.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" onclick="resetTablePreferences()">
+            <i class="bi bi-arrow-counterclockwise me-1"></i>Reset to Default
+          </button>
+          <button type="button" class="btn btn-brand" onclick="saveTablePreferences()">
+            <i class="bi bi-check-lg me-1"></i>Save Preferences
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- MODAL: Add Lead -->
   <div class="modal fade" id="addLeadModal" tabindex="-1">
@@ -380,6 +463,19 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body" id="leadDetailsModalBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Training Player -->
+  <div class="modal fade" id="trainingPlayerModal" tabindex="-1">
+    <div class="modal-dialog modal-fullscreen">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"></h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body p-0"></div>
       </div>
     </div>
   </div>
@@ -1024,6 +1120,7 @@
   <script src="js/campaign-analytics.js"></script>
   <script src="js/campaign-reports.js"></script>
   <script src="js/pitch.js"></script>
+  <script src="js/training.js"></script>
   <script src="js/app.js"></script>
   <script>
     // Reveal "Add Lead" button only for Admin / Super Admin, after role is known
