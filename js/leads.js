@@ -6,16 +6,20 @@
 // ============================================================
 // STATUS LIST
 // ============================================================
-// NOTE: "Pending Approval" and "Re-Call Required" are SYSTEM-ONLY statuses.
+// NOTE: "Pending Approval", "Re-Call Required", and "No Response" are SYSTEM-ONLY statuses.
 // They are automatically assigned by the workflow and should NEVER be 
-// manually selectable in the dropdown. They are managed via callAuditStatus field.
+// manually selectable in the dropdown.
+// - Pending Approval & Re-Call Required: Managed via callAuditStatus field
+// - No Response: Assigned after max consecutive Not Picking Call attempts
 // ============================================================
 
 const STATUS_LIST = [
   "Not Open",
   "Busy",
-  "Not Picking Call",
+  "Contacted",
   "Interested",
+  "Call Back Later",
+  "Not Picking Call",
   "Not Interested",
   "Job Seeker",
   "Driver",
@@ -23,10 +27,136 @@ const STATUS_LIST = [
 ];
 
 // System-only statuses (never shown in dropdown, set automatically by workflow)
-const SYSTEM_STATUSES = ["Pending Approval", "Re-Call Required"];
+const SYSTEM_STATUSES = [
+  "Pending Approval",   // Call audit workflow
+  "Re-Call Required",   // Call audit workflow
+  "No Response"         // Auto-assigned after max consecutive Not Picking Call attempts
+];
+
+// Statuses that indicate meaningful contact (reset Not Picking Call counter)
+const MEANINGFUL_CONTACT_STATUSES = [
+  "Contacted",
+  "Busy",
+  "Interested",
+  "Call Back Later"
+];
 
 // Statuses that require mandatory call audit (Sales Members cannot set directly)
 const AUDIT_REQUIRED_STATUSES = ["Not Interested"];
+
+// ============================================================
+// ONE-TIME MIGRATION: Not Picking Call → No Response
+// ============================================================
+// This function reviews leads with consecutive Not Picking Call history
+// and migrates them to "No Response" if they meet the criteria.
+// Should be run ONCE after deploying this feature.
+// ============================================================
+
+async function migrateNotPickingCallToNoResponse() {
+  console.log("Starting one-time migration: Not Picking Call → No Response");
+  
+  const maxConsecutiveAttempts = getCRMSetting("maxConsecutiveNotPickingAttempts") || 3;
+  console.log(`Using max consecutive attempts: ${maxConsecutiveAttempts}`);
+  
+  // Query all leads still in "Not Picking Call" status
+  const snapshot = await leadsRef.where("status", "==", "Not Picking Call").get();
+  
+  if (snapshot.empty) {
+    console.log("No leads found in 'Not Picking Call' status. Migration complete.");
+    return { migrated: 0, skipped: 0 };
+  }
+  
+  let migratedCount = 0;
+  let skippedCount = 0;
+  const batch = db.batch();
+  let batchCount = 0;
+  const MAX_BATCH_SIZE = 500;
+  
+  for (const doc of snapshot.docs) {
+    const lead = doc.data();
+    const history = lead.history || [];
+    
+    // Count consecutive "Not Picking Call" attempts at the END of history
+    let consecutiveAttempts = 0;
+    for (let i = history.length - 1; i >= 0; i--) {
+      const entry = history[i];
+      if (entry.statusAtTime === "Not Picking Call") {
+        consecutiveAttempts++;
+      } else if (MEANINGFUL_CONTACT_STATUSES.includes(entry.statusAtTime)) {
+        // Stop counting at meaningful contact
+        break;
+      }
+    }
+    
+    // Migrate if meets criteria
+    if (consecutiveAttempts >= maxConsecutiveAttempts) {
+      const migrationEntry = {
+        text: `Migration: Automatically moved to "No Response" after ${consecutiveAttempts} consecutive Not Picking Call attempts (max: ${maxConsecutiveAttempts} per CRM Settings). This status distinguishes no customer response from explicit "Not Interested".`,
+        statusAtTime: "No Response",
+        updatedBy: "system-migration",
+        updatedByName: "System Migration",
+        timestamp: new Date().toISOString(),
+        isMigration: true
+      };
+      
+      batch.update(doc.ref, {
+        status: "No Response",
+        consecutiveNotPickingAttempts: consecutiveAttempts,
+        nextFollowUpAt: null, // Remove follow-up
+        history: firebase.firestore.FieldValue.arrayUnion(migrationEntry)
+      });
+      
+      migratedCount++;
+      batchCount++;
+      
+      // Commit batch if reaching limit
+      if (batchCount >= MAX_BATCH_SIZE) {
+        await batch.commit();
+        console.log(`Committed batch of ${batchCount} updates`);
+        batchCount = 0;
+      }
+    } else {
+      skippedCount++;
+    }
+  }
+  
+  // Commit remaining
+  if (batchCount > 0) {
+    await batch.commit();
+    console.log(`Committed final batch of ${batchCount} updates`);
+  }
+  
+  console.log(`Migration complete: ${migratedCount} migrated, ${skippedCount} skipped`);
+  return { migrated: migratedCount, skipped: skippedCount };
+}
+
+// Call migration on page load (only if Super Admin and not run before)
+async function checkAndRunMigration() {
+  // Only Super Admin can trigger migration
+  if (CURRENT_USER.role !== "superadmin") return;
+  
+  // Check if migration already run (using localStorage flag)
+  const migrationKey = "noResponseMigrationCompleted_v1";
+  if (localStorage.getItem(migrationKey)) {
+    console.log("Migration already completed (flag found in localStorage)");
+    return;
+  }
+  
+  // Ask Super Admin for confirmation
+  if (!confirm("One-time migration required: Review leads with consecutive 'Not Picking Call' attempts and move them to new 'No Response' status. This will improve your CRM analytics by distinguishing between 'no response' and 'not interested'. Run migration now?")) {
+    console.log("Migration cancelled by user");
+    return;
+  }
+  
+  try {
+    const result = await migrateNotPickingCallToNoResponse();
+    toast(`Migration complete: ${result.migrated} leads moved to "No Response", ${result.skipped} leads skipped.`, "success");
+    localStorage.setItem(migrationKey, new Date().toISOString());
+  } catch (error) {
+    console.error("Migration failed:", error);
+    toast("Migration failed. Check console for details.", "danger");
+  }
+}
 
 // Reminder delay in minutes per status — now read from CRM Settings at runtime.
 // STATUS_REMINDER_MINUTES kept as a fallback for the very first render before
@@ -85,6 +215,7 @@ async function loadLeadsView() {
     // No client-side sort needed.
     renderLeadsTable();
     checkReminders(); // re-evaluate whenever data changes
+    if (typeof refreshCampaignAnalyticsIfVisible === "function") refreshCampaignAnalyticsIfVisible();
   }, (err) => console.error("Leads snapshot error:", err));
 }
 
@@ -101,37 +232,484 @@ async function createLead(formData) {
   await smartCreateLead(formData);
 }
 
+// ============================================================
+// FOLLOW-UP SCHEDULING SYSTEM
+// ============================================================
+
+// Global variable to track follow-up modal state
+let PENDING_STATUS_UPDATE = null;
+
+/**
+ * Validates follow-up date and time against CRM Settings
+ * Returns { valid: boolean, error: string, suggestion: any }
+ */
+async function validateFollowUpDateTime(date, time) {
+  const scheduledDateTime = new Date(`${date}T${time}`);
+  const now = new Date();
+  
+  // 1. Not in the past
+  if (scheduledDateTime <= now) {
+    return { valid: false, error: "Cannot schedule follow-up in the past.", type: "error" };
+  }
+  
+  // 2. Not on holiday
+  const holidays = CRM_CONFIG.holidays || [];
+  const isHoliday = holidays.some(h => {
+    if (h.recurring) {
+      return h.date.slice(5) === date.slice(5);
+    }
+    return h.date === date;
+  });
+  
+  if (isHoliday) {
+    const holiday = holidays.find(h => 
+      h.recurring ? h.date.slice(5) === date.slice(5) : h.date === date
+    );
+    const nextDate = getNextWorkingDay(date);
+    return { 
+      valid: false, 
+      error: `${date} is a holiday (${holiday.name}).`,
+      suggestion: nextDate,
+      type: "error"
+    };
+  }
+  
+  // 3. Working day
+  const dayOfWeek = ["Sunday","Monday","Tuesday","Wednesday",
+                     "Thursday","Friday","Saturday"][scheduledDateTime.getDay()];
+  const workingDays = CRM_CONFIG.workingDays || [];
+  
+  if (!workingDays.includes(dayOfWeek)) {
+    const nextDate = getNextWorkingDay(date);
+    return { 
+      valid: false, 
+      error: `${dayOfWeek} is not a working day.`,
+      suggestion: nextDate,
+      type: "error"
+    };
+  }
+
+  // 4. Office hours
+  const [officeStartH, officeStartM] = (CRM_CONFIG.officeStart || "09:00").split(":").map(Number);
+  const [officeEndH, officeEndM] = (CRM_CONFIG.officeEnd || "18:00").split(":").map(Number);
+  const [schedH, schedM] = time.split(":").map(Number);
+  
+  const schedMinutes = schedH * 60 + schedM;
+  const startMinutes = officeStartH * 60 + officeStartM;
+  const endMinutes = officeEndH * 60 + officeEndM;
+  
+  if (schedMinutes < startMinutes || schedMinutes >= endMinutes) {
+    return {
+      valid: false,
+      error: `Time must be between ${CRM_CONFIG.officeStart} and ${CRM_CONFIG.officeEnd}.`,
+      suggestion: CRM_CONFIG.officeStart,
+      type: "error"
+    };
+  }
+  
+  // 5. Not during break time
+  const breaks = CRM_CONFIG.breakTimings || [];
+  for (const brk of breaks) {
+    const [brkStartH, brkStartM] = (brk.start || "00:00").split(":").map(Number);
+    const [brkEndH, brkEndM] = (brk.end || "00:00").split(":").map(Number);
+    const brkStartMin = brkStartH * 60 + brkStartM;
+    const brkEndMin = brkEndH * 60 + brkEndM;
+    
+    if (schedMinutes >= brkStartMin && schedMinutes < brkEndMin) {
+      return {
+        valid: false,
+        error: `Cannot schedule during break time: ${brk.name} (${brk.start} - ${brk.end}).`,
+        type: "warning"
+      };
+    }
+  }
+  
+  return { valid: true };
+}
+
+/**
+ * Find next working day starting from given date
+ */
+function getNextWorkingDay(startDate) {
+  const workingDays = CRM_CONFIG.workingDays || [];
+  const holidays = CRM_CONFIG.holidays || [];
+  const date = new Date(startDate);
+  
+  // Try up to 14 days ahead
+  for (let i = 1; i <= 14; i++) {
+    date.setDate(date.getDate() + 1);
+    const dateStr = date.toISOString().slice(0, 10);
+    const dayName = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][date.getDay()];
+    
+    // Check if working day
+    if (!workingDays.includes(dayName)) continue;
+    
+    // Check if holiday
+    const isHoliday = holidays.some(h => {
+      if (h.recurring) return h.date.slice(5) === dateStr.slice(5);
+      return h.date === dateStr;
+    });
+    
+    if (!isHoliday) return dateStr;
+  }
+  
+  return startDate; // fallback
+}
+
+/**
+ * Open follow-up scheduling modal
+ */
+async function openFollowUpModal(leadId, leadData, statusNote) {
+  // Store pending status update
+  PENDING_STATUS_UPDATE = {
+    leadId: leadId,
+    newStatus: "Call Back Later",
+    noteText: statusNote,
+    leadData: leadData
+  };
+  
+  // Populate modal
+  document.getElementById("followUpLeadName").textContent = escapeHtml(leadData.fullName);
+  document.getElementById("followUpLeadPhone").textContent = escapeHtml(leadData.phoneNumber || "—");
+  
+  // Set default date (tomorrow) and time (10:00 AM)
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+  
+  document.getElementById("followUpDate").value = tomorrowStr;
+  document.getElementById("followUpTime").value = "10:00";
+  document.getElementById("followUpRemark").value = "";
+  document.getElementById("followUpValidationMessages").innerHTML = "";
+  
+  // Reset radio buttons
+  document.getElementById("followUpCall").checked = true;
+  document.getElementById("followUpMorning").checked = true;
+  
+  // Show modal
+  const modal = new bootstrap.Modal(document.getElementById("scheduleFollowUpModal"));
+  modal.show();
+  
+  // Add validation on change
+  document.getElementById("followUpDate").addEventListener("input", validateFollowUpInputs);
+  document.getElementById("followUpTime").addEventListener("input", validateFollowUpInputs);
+}
+
+/**
+ * Validate follow-up inputs and show messages
+ */
+async function validateFollowUpInputs() {
+  const date = document.getElementById("followUpDate").value;
+  const time = document.getElementById("followUpTime").value;
+  const msgContainer = document.getElementById("followUpValidationMessages");
+  
+  if (!date || !time) {
+    msgContainer.innerHTML = "";
+    return;
+  }
+  
+  const validation = await validateFollowUpDateTime(date, time);
+  
+  if (!validation.valid) {
+    const iconClass = validation.type === "error" ? "bi-x-circle-fill" : "bi-exclamation-triangle-fill";
+    const cssClass = validation.type === "error" ? "followup-validation-error" : "followup-validation-warning";
+    
+    let html = `
+      <div class="${cssClass}">
+        <i class="bi ${iconClass}"></i>
+        <div>
+          <div>${escapeHtml(validation.error)}</div>
+          ${validation.suggestion ? `
+            <span class="followup-validation-suggestion" onclick="applySuggestedDate('${validation.suggestion}')">
+              <i class="bi bi-arrow-right-circle me-1"></i>Use ${validation.suggestion}
+            </span>
+          ` : ""}
+        </div>
+      </div>
+    `;
+    msgContainer.innerHTML = html;
+  } else {
+    msgContainer.innerHTML = `
+      <div style="background: #D8F3DD; border: 1px solid #a8dcb4; border-radius: 8px; padding: 10px 12px; font-size: 13px; color: #1E7A34;">
+        <i class="bi bi-check-circle-fill me-2"></i>Follow-up time is valid.
+      </div>
+    `;
+  }
+}
+
+/**
+ * Apply suggested date from validation message
+ */
+function applySuggestedDate(dateStr) {
+  document.getElementById("followUpDate").value = dateStr;
+  validateFollowUpInputs();
+}
+
+/**
+ * Cancel follow-up schedule - return to status modal
+ */
+function cancelFollowUpSchedule() {
+  const modal = bootstrap.Modal.getInstance(document.getElementById("scheduleFollowUpModal"));
+  modal.hide();
+  PENDING_STATUS_UPDATE = null;
+  
+  // Re-open status modal
+  // Note: The status modal should still be accessible in the DOM
+}
+
+/**
+ * Handle follow-up form submission
+ */
+document.addEventListener("DOMContentLoaded", () => {
+  const followUpForm = document.getElementById("scheduleFollowUpForm");
+  if (followUpForm) {
+    followUpForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      
+      if (!PENDING_STATUS_UPDATE) {
+        toast("No pending status update found.", "danger");
+        return;
+      }
+      
+      const date = document.getElementById("followUpDate").value;
+      const time = document.getElementById("followUpTime").value;
+      const contactMethod = document.querySelector('input[name="followUpContactMethod"]:checked').value;
+      const preferredTime = document.querySelector('input[name="followUpPreferredTime"]:checked').value;
+      const remark = document.getElementById("followUpRemark").value.trim();
+      
+      if (!remark) {
+        toast("Please provide a remark for the follow-up.", "warning");
+        return;
+      }
+      
+      // Final validation
+      const validation = await validateFollowUpDateTime(date, time);
+      if (!validation.valid) {
+        toast(validation.error, "danger");
+        return;
+      }
+      
+      // Disable submit button
+      const submitBtn = followUpForm.querySelector('button[type="submit"]');
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Scheduling...';
+      
+      try {
+        // Create follow-up object
+        const scheduledTimestamp = firebase.firestore.Timestamp.fromDate(new Date(`${date}T${time}`));
+        
+        const followUpData = {
+          status: "Pending",
+          scheduledDate: date,
+          scheduledTime: time,
+          scheduledTimestamp: scheduledTimestamp,
+          contactMethod: contactMethod,
+          preferredTime: preferredTime,
+          remark: remark,
+          assignedTo: CURRENT_USER.uid,
+          assignedToName: CURRENT_USER.name || CURRENT_USER.email,
+          createdBy: CURRENT_USER.uid,
+          createdByName: CURRENT_USER.name || CURRENT_USER.email,
+          createdAt: firebase.firestore.Timestamp.now(),
+          completedAt: null,
+          completedBy: null,
+          completedByName: null
+        };
+        
+        // Now execute the status update WITH follow-up
+        await executeStatusUpdateWithFollowUp(
+          PENDING_STATUS_UPDATE.leadId,
+          PENDING_STATUS_UPDATE.newStatus,
+          PENDING_STATUS_UPDATE.noteText,
+          followUpData
+        );
+        
+        // Close modal
+        const modal = bootstrap.Modal.getInstance(document.getElementById("scheduleFollowUpModal"));
+        modal.hide();
+        
+        // Close status modal too
+        const statusModal = bootstrap.Modal.getInstance(document.getElementById("statusModal"));
+        if (statusModal) statusModal.hide();
+        
+        // Clear pending update
+        PENDING_STATUS_UPDATE = null;
+        
+        toast(`Follow-up scheduled for ${date} at ${time}.`, "success");
+        
+      } catch (error) {
+        console.error("Follow-up scheduling error:", error);
+        toast("Failed to schedule follow-up. Please try again.", "danger");
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Schedule Follow-up';
+      }
+    });
+  }
+});
+
+/**
+ * Execute status update with follow-up data
+ */
+async function executeStatusUpdateWithFollowUp(leadId, newStatus, noteText, followUpData) {
+  const leadRef = leadsRef.doc(leadId);
+  const now = firebase.firestore.Timestamp.now();
+
+  // Get current lead data
+  const leadDoc = await leadRef.get();
+  if (!leadDoc.exists) {
+    toast("Lead not found.", "danger");
+    return;
+  }
+  const leadData = leadDoc.data();
+
+  // Read settings
+  const maxConsecutiveAttempts = getCRMSetting("maxConsecutiveNotPickingAttempts") || 3;
+  
+  // Create history entry with follow-up details
+  let historyText = noteText && noteText.trim() ? noteText.trim() : "(status updated, no note added)";
+  historyText += `\n\n📅 Follow-up scheduled:\nDate: ${followUpData.scheduledDate} at ${followUpData.scheduledTime}\nMethod: ${followUpData.contactMethod}\nPreferred: ${followUpData.preferredTime}\nRemark: ${followUpData.remark}`;
+
+  const historyEntry = {
+    text: historyText,
+    statusAtTime: newStatus,
+    updatedBy: CURRENT_USER.uid,
+    updatedByName: CURRENT_USER.name || CURRENT_USER.email,
+    timestamp: new Date().toISOString(),
+    followUp: followUpData // Embed follow-up in history
+  };
+
+  // Update lead with follow-up embedded
+  const updateData = {
+    status: newStatus,
+    lastContactedAt: now,
+    followUp: followUpData, // Store current follow-up in lead document
+    hasPendingFollowUp: true,
+    nextFollowUpAt: followUpData.scheduledTimestamp,
+    consecutiveNotPickingAttempts: 0, // Reset on Call Back Later
+    history: firebase.firestore.FieldValue.arrayUnion(historyEntry)
+  };
+
+  await leadRef.update(updateData);
+}
+
 // ---------------- UPDATE STATUS / NOTE (with history) ----------------
 async function updateLeadStatus(leadId, newStatus, noteText) {
   const leadRef = leadsRef.doc(leadId);
   const now = firebase.firestore.Timestamp.now();
 
-  // Read reminder delays from live CRM Settings; fall back to hardcoded values
+  // Get current lead data
+  const leadDoc = await leadRef.get();
+  if (!leadDoc.exists) {
+    toast("Lead not found.", "danger");
+    return;
+  }
+  const leadData = leadDoc.data();
+  
+  // ✅ INTERCEPT "Call Back Later" — require follow-up scheduling
+  if (newStatus === "Call Back Later") {
+    // Close the status modal first
+    const statusModal = bootstrap.Modal.getInstance(document.getElementById("statusModal"));
+    if (statusModal) statusModal.hide();
+    
+    // Open follow-up modal
+    await openFollowUpModal(leadId, leadData, noteText);
+    return; // Stop here — follow-up modal will complete the update
+  }
+  
+  // ✅ AUTO-CANCEL pending follow-up if moving to final status
+  const finalStatuses = ["Interested", "Not Interested", "No Response", "Job Seeker", "Driver", "Transporter"];
+  if (finalStatuses.includes(newStatus) && leadData.hasPendingFollowUp) {
+    await cancelPendingFollowUp(leadId, leadData, newStatus);
+  }
+
+  // Continue with normal status update logic
+  // Read settings - all values from CRM_CONFIG
+  const maxConsecutiveAttempts = getCRMSetting("maxConsecutiveNotPickingAttempts") || 3;
+  const autoMoveToNoResponse = getCRMSetting("autoMoveToNoResponse") ?? true;
+  const reminderAfterBusy = getCRMSetting("reminderAfterMinutes") || 60;
+  
+  // Not Picking Call reminder: 4 hours (240 minutes)
   const reminderMap = {
-    "Busy":            (typeof getCRMSetting === "function" ? getCRMSetting("leadRules.reminderAfterMinutes") : null) || 60,
+    "Busy": reminderAfterBusy,
     "Not Picking Call": 240
   };
 
+  // Track consecutive "Not Picking Call" attempts
+  let consecutiveAttempts = leadData.consecutiveNotPickingAttempts || 0;
+  let finalStatus = newStatus;
   let nextFollowUpAt = null;
-  const reminderMinutes = reminderMap[newStatus];
-  if (reminderMinutes) {
-    nextFollowUpAt = firebase.firestore.Timestamp.fromMillis(Date.now() + reminderMinutes * 60000);
+  let historyText = noteText && noteText.trim() ? noteText.trim() : "(status updated, no note added)";
+
+  // Handle "Not Picking Call" attempt tracking
+  if (newStatus === "Not Picking Call") {
+    consecutiveAttempts++;
+    
+    // Check if max consecutive attempts reached
+    if (consecutiveAttempts >= maxConsecutiveAttempts) {
+      if (autoMoveToNoResponse) {
+        // Auto-move to "No Response" (system-only status)
+        finalStatus = "No Response";
+        nextFollowUpAt = null; // No follow-up for No Response
+        historyText = `Not Picking Call - Attempt ${consecutiveAttempts}/${maxConsecutiveAttempts}. Automatically moved to "No Response" per CRM Settings (${maxConsecutiveAttempts} consecutive attempts with no answer). ${noteText && noteText.trim() ? "Note: " + noteText.trim() : ""}`;
+        
+        toast(`Lead automatically moved to "No Response" after ${maxConsecutiveAttempts} consecutive attempts with no answer.`, "warning");
+      } else {
+        // Prevent additional "Not Picking Call" updates
+        toast(`Maximum consecutive "Not Picking Call" attempts (${maxConsecutiveAttempts}) reached. Please select another status or contact admin.`, "danger");
+        return; // Block the update
+      }
+    } else {
+      // Still under max attempts - schedule follow-up
+      const reminderMinutes = reminderMap[newStatus];
+      if (reminderMinutes) {
+        nextFollowUpAt = firebase.firestore.Timestamp.fromMillis(Date.now() + reminderMinutes * 60000);
+      }
+      historyText = `Not Picking Call - Consecutive attempt ${consecutiveAttempts}/${maxConsecutiveAttempts}. ${noteText && noteText.trim() ? "Note: " + noteText.trim() : ""}`;
+    }
+  } else if (MEANINGFUL_CONTACT_STATUSES.includes(newStatus)) {
+    // Reset consecutive attempts on meaningful contact
+    consecutiveAttempts = 0;
+    
+    // Schedule follow-up if applicable
+    const reminderMinutes = reminderMap[newStatus];
+    if (reminderMinutes) {
+      nextFollowUpAt = firebase.firestore.Timestamp.fromMillis(Date.now() + reminderMinutes * 60000);
+    }
+  } else {
+    // Other status changes also reset the counter
+    consecutiveAttempts = 0;
   }
 
+  // Create history entry
   const historyEntry = {
-    text: noteText && noteText.trim() ? noteText.trim() : "(status updated, no note added)",
-    statusAtTime: newStatus,
+    text: historyText,
+    statusAtTime: finalStatus,
     updatedBy: CURRENT_USER.uid,
     updatedByName: CURRENT_USER.name || CURRENT_USER.email,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    ...(newStatus === "Not Picking Call" && { 
+      attemptCount: consecutiveAttempts, 
+      maxAttempts: maxConsecutiveAttempts,
+      isConsecutive: true
+    })
   };
 
-  await leadRef.update({
-    status: newStatus,
+  // Update lead
+  const updateData = {
+    status: finalStatus,
     lastContactedAt: now,
     nextFollowUpAt: nextFollowUpAt,
+    consecutiveNotPickingAttempts: consecutiveAttempts,
     history: firebase.firestore.FieldValue.arrayUnion(historyEntry)
-  });
+  };
+
+  await leadRef.update(updateData);
+
+  // Log to console for debugging
+  if (newStatus === "Not Picking Call") {
+    console.log(`Not Picking Call: Consecutive attempt ${consecutiveAttempts}/${maxConsecutiveAttempts}, Auto-move to No Response enabled: ${autoMoveToNoResponse}, Final status: ${finalStatus}`);
+  }
 }
 
 // ---------------- DELETE / EDIT (Super Admin only) ----------------
@@ -289,10 +867,45 @@ function isFollowUpDue(lead) {
 // ── Overdue helpers ───────────────────────────────────────────────────────────
 
 /**
+ * Cancel pending follow-up when lead moves to final status
+ */
+async function cancelPendingFollowUp(leadId, leadData, newStatus) {
+  const leadRef = leadsRef.doc(leadId);
+  
+  // Update follow-up status to cancelled
+  const cancelledFollowUp = {
+    ...leadData.followUp,
+    status: "Cancelled",
+    cancelledAt: firebase.firestore.Timestamp.now(),
+    cancelledBy: CURRENT_USER.uid,
+    cancelledByName: CURRENT_USER.name || CURRENT_USER.email,
+    cancelReason: `Lead moved to final status: ${newStatus}`
+  };
+  
+  // Add timeline entry
+  const timelineEntry = {
+    text: `Follow-up Cancelled: Lead moved to "${newStatus}" status. Original follow-up was scheduled for ${leadData.followUp.scheduledDate} at ${leadData.followUp.scheduledTime}.`,
+    statusAtTime: newStatus,
+    updatedBy: CURRENT_USER.uid,
+    updatedByName: CURRENT_USER.name || CURRENT_USER.email,
+    timestamp: new Date().toISOString(),
+    followUpCancelled: true
+  };
+  
+  await leadRef.update({
+    followUp: cancelledFollowUp,
+    hasPendingFollowUp: false,
+    nextFollowUpAt: null,
+    history: firebase.firestore.FieldValue.arrayUnion(timelineEntry)
+  });
+}
+
+/**
  * Returns total minutes a lead has been overdue (0 if not overdue).
  * A lead is urgent when:
  *   (a) status === "Not Open" AND createdAt > UNCONTACTED_ALERT_MINUTES ago, OR
- *   (b) nextFollowUpAt has passed.
+ *   (b) nextFollowUpAt has passed (legacy reminders), OR
+ *   (c) hasPendingFollowUp and scheduledTimestamp has passed (new follow-up system)
  */
 function overdueMinutes(lead) {
   const now = Date.now();
@@ -311,11 +924,24 @@ function overdueMinutes(lead) {
     }
   }
 
-  // Rule (b): missed follow-up reminder
+  // Rule (b): missed follow-up reminder (legacy)
   if (lead.nextFollowUpAt) {
     const passedMin = (now - lead.nextFollowUpAt.toMillis()) / 60000;
     if (passedMin > 0) {
       maxOverdue = Math.max(maxOverdue, Math.floor(passedMin));
+    }
+  }
+  
+  // Rule (c): NEW - pending follow-up overdue
+  if (lead.hasPendingFollowUp && lead.followUp && lead.followUp.status === "Pending") {
+    if (lead.followUp.scheduledTimestamp) {
+      const followUpTime = lead.followUp.scheduledTimestamp.toMillis ? 
+        lead.followUp.scheduledTimestamp.toMillis() : 
+        new Date(lead.followUp.scheduledDate + "T" + lead.followUp.scheduledTime).getTime();
+      const passedMin = (now - followUpTime) / 60000;
+      if (passedMin > 0) {
+        maxOverdue = Math.max(maxOverdue, Math.floor(passedMin));
+      }
     }
   }
 
@@ -405,6 +1031,20 @@ function _renderUrgentStaff(container) {
         <div class="urgent-card-info">
           <div class="urgent-name">${escapeHtml(l.fullName)}</div>
           <div class="urgent-company">${escapeHtml(l.companyName || "—")}</div>
+          ${l.hasPendingFollowUp && l.followUp ? `
+          <div class="followup-timeline-details mt-2">
+            <div class="followup-timeline-details-row">
+              <span class="followup-timeline-details-label"><i class="bi bi-calendar-check me-1"></i>Follow-up:</span>
+              <span class="followup-timeline-details-value">${l.followUp.scheduledDate} at ${l.followUp.scheduledTime}</span>
+            </div>
+            ${l.followUp.remark ? `
+            <div class="followup-timeline-details-row">
+              <span class="followup-timeline-details-label"><i class="bi bi-chat-text me-1"></i>Remark:</span>
+              <span class="followup-timeline-details-value">${escapeHtml(l.followUp.remark).substring(0, 60)}${l.followUp.remark.length > 60 ? '...' : ''}</span>
+            </div>
+            ` : ''}
+          </div>
+          ` : ''}
         </div>
 
         <div class="urgent-card-details">
@@ -483,6 +1123,20 @@ function _renderUrgentMember(container) {
         <div class="urgent-card-info">
           <div class="urgent-name">${escapeHtml(l.fullName)}</div>
           <div class="urgent-company">${escapeHtml(l.companyName || "—")}</div>
+          ${l.hasPendingFollowUp && l.followUp ? `
+          <div class="followup-timeline-details mt-2">
+            <div class="followup-timeline-details-row">
+              <span class="followup-timeline-details-label"><i class="bi bi-calendar-check me-1"></i>Follow-up:</span>
+              <span class="followup-timeline-details-value">${l.followUp.scheduledDate} at ${l.followUp.scheduledTime}</span>
+            </div>
+            ${l.followUp.remark ? `
+            <div class="followup-timeline-details-row">
+              <span class="followup-timeline-details-label"><i class="bi bi-chat-text me-1"></i>Remark:</span>
+              <span class="followup-timeline-details-value">${escapeHtml(l.followUp.remark).substring(0, 60)}${l.followUp.remark.length > 60 ? '...' : ''}</span>
+            </div>
+            ` : ''}
+          </div>
+          ` : ''}
         </div>
 
         <div class="urgent-card-details">
@@ -718,15 +1372,27 @@ function openHistoryModal(leadId) {
   if (history.length === 0) {
     body.innerHTML = `<p class="text-muted">No history yet.</p>`;
   } else {
-    body.innerHTML = history.map((h) => `
+    body.innerHTML = history.map((h) => {
+      // Build attempt badge if this is a Not Picking Call entry
+      let attemptBadge = "";
+      if (h.attemptCount && h.maxAttempts) {
+        const isMaxReached = h.attemptCount >= h.maxAttempts;
+        const badgeClass = isMaxReached ? "bg-danger" : "bg-warning text-dark";
+        attemptBadge = `<span class="badge ${badgeClass} ms-2">Attempt ${h.attemptCount}/${h.maxAttempts}</span>`;
+      }
+      
+      return `
       <div class="history-entry">
-        <div class="d-flex justify-content-between">
+        <div class="d-flex justify-content-between align-items-start">
           <span class="fw-semibold">${escapeHtml(h.updatedByName || "Unknown")}</span>
           <span class="small text-muted">${formatDateTime(new Date(h.timestamp))}</span>
         </div>
-        <div class="small text-muted mb-1">Status: ${h.statusAtTime || "-"}</div>
+        <div class="small text-muted mb-1">
+          Status: ${h.statusAtTime || "-"}${attemptBadge}
+        </div>
         <div>${escapeHtml(h.text)}</div>
-      </div>`).join("");
+      </div>`;
+    }).join("");
   }
 
   new bootstrap.Modal(document.getElementById("historyModal")).show();

@@ -43,12 +43,32 @@ function isValidAssignmentTime() {
 // ── Fetch today's approved leaves ────────────────────────────
 async function getTodayLeaves() {
   const today = new Date().toISOString().slice(0, 10);
-  const snap = await leavesRef
+  
+  // Get single day leaves for today
+  const singleDaySnap = await leavesRef
     .where("date", "==", today)
     .where("status", "==", "Approved")
     .get();
+  
   const leaves = [];
-  snap.forEach(d => leaves.push({ id: d.id, ...d.data() }));
+  singleDaySnap.forEach(d => leaves.push({ id: d.id, ...d.data() }));
+  
+  // Get multiple day leaves that span today
+  const multipleDaySnap = await leavesRef
+    .where("leaveType", "==", "Multiple Days")
+    .where("status", "==", "Approved")
+    .get();
+  
+  multipleDaySnap.forEach(d => {
+    const leaveData = d.data();
+    if (leaveData.dateFrom && leaveData.dateTo) {
+      // Check if today falls within the range
+      if (today >= leaveData.dateFrom && today <= leaveData.dateTo) {
+        leaves.push({ id: d.id, ...leaveData });
+      }
+    }
+  });
+  
   return leaves;
 }
 
@@ -58,9 +78,16 @@ function isMemberAvailableNow(memberId, todayLeaves) {
   if (!leave) return true;
 
   const type = leave.leaveType;
-  if (type === "Full Day" || type === "Sick Leave" || type === "Emergency Leave") return false;
+  
+  // Full day absences
+  if (type === "Full Day" || type === "Sick Leave" || type === "Emergency Leave" || type === "Multiple Days") {
+    return false;
+  }
+  
+  // Work from home - member is available
   if (type === "Work From Home") return true;
 
+  // Half day leaves - check time boundary
   const now = new Date();
   const nowMin = now.getHours() * 60 + now.getMinutes();
   const [lh, lm] = (CRM_CONFIG.lunchStart || "13:00").split(":").map(Number);
@@ -68,6 +95,7 @@ function isMemberAvailableNow(memberId, todayLeaves) {
 
   // Half Day Morning: absent AM, available after lunch
   if (type === "Half Day Morning") return nowMin >= lunchMin;
+  
   // Half Day Afternoon: available AM, absent after lunch
   if (type === "Half Day Afternoon") return nowMin < lunchMin;
 
@@ -125,6 +153,7 @@ async function smartCreateLead(formData) {
       createdAt:     now,
       lastContactedAt: null,
       nextFollowUpAt:  null,
+      consecutiveNotPickingAttempts: 0,  // Track consecutive "Not Picking Call" attempts
       // Campaign Form Builder — null/"" when the legacy "General / No Campaign" path is used
       campaignId:         formData.campaignId || null,
       campaignName:        formData.campaignName || null,
@@ -221,6 +250,15 @@ async function dispatchPendingLeads() {
     setTimeout(async () => {
       if (!isValidAssignmentTime()) return; // re-check before each assignment
       try {
+        // Check if lead still exists before attempting update
+        const leadDoc = await leadsRef.doc(leadId).get();
+        if (!leadDoc.exists) {
+          console.warn(`Lead ${leadId} no longer exists, removing from queue`);
+          await assignmentQueueRef.doc(leadId).delete();
+          await writeAuditLog(leadId, slNo, "Skipped", "Lead was deleted before assignment", "System");
+          return;
+        }
+        
         const member = await getNextAvailableMember(todayLeaves);
         if (!member) {
           await writeAuditLog(leadId, slNo, "Skipped", "No members available", "System");
@@ -253,6 +291,7 @@ async function dispatchPendingLeads() {
         }
       } catch (err) {
         console.error("Dispatch error for lead", leadId, err);
+        // Don't crash the entire queue - continue with next lead
       }
     }, delay);
     delay += intervalMs;

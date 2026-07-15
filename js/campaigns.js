@@ -37,6 +37,30 @@ const FIELD_TYPES = [
 
 const FIELD_TYPES_WITH_OPTIONS = ["dropdown", "radio", "checkbox"];
 
+// ── Campaign status model ────────────────────────────────────
+// Backward compatible with existing docs that only have `active` (bool).
+// New docs also carry `archived` (bool). Precedence: archived > active/inactive.
+//   archived === true                → "archived"  (read-only, historical only)
+//   archived !== true && active===false → "inactive" (editable, hidden from Add Lead)
+//   otherwise                        → "active"    (selectable in Add Lead)
+function getCampaignStatus(c) {
+  if (!c) return "active";
+  if (c.archived === true) return "archived";
+  return c.active === false ? "inactive" : "active";
+}
+
+const CAMPAIGN_STATUS_BADGE = {
+  active:   '<span class="badge bg-success">Active</span>',
+  inactive: '<span class="badge bg-danger">Inactive</span>',
+  archived: '<span class="badge bg-secondary"><i class="bi bi-archive me-1"></i>Archived</span>'
+};
+
+// Leads created under a given campaign (from the already-subscribed ALL_LEADS
+// cache — no extra Firestore reads needed; Super Admin/Admin already load all leads).
+function _leadsForCampaign(campaignId) {
+  return (typeof ALL_LEADS !== "undefined" ? ALL_LEADS : []).filter(l => l.campaignId === campaignId);
+}
+
 let ALL_CAMPAIGNS = [];              // cached campaigns (all — active + inactive)
 let CAMPAIGN_FIELDS_CACHE = {};      // campaignId -> [field, ...] ordered by displayOrder
 let _builderCampaignId = null;       // campaign currently open in the Field Builder modal
@@ -53,6 +77,7 @@ function subscribeCampaigns() {
     if (view && !view.classList.contains("d-none")) renderCampaignsView();
 
     refreshLeadCampaignDropdown();
+    if (typeof refreshCampaignAnalyticsIfVisible === "function") refreshCampaignAnalyticsIfVisible();
   }, (err) => console.error("Campaigns snapshot error:", err));
 
   campaignFieldsRef.orderBy("displayOrder", "asc").onSnapshot((snap) => {
@@ -68,6 +93,7 @@ function subscribeCampaigns() {
     if (sel && sel.value && sel.value !== "__none__") {
       renderCampaignFieldsInAddLead(sel.value);
     }
+    if (typeof refreshCampaignAnalyticsIfVisible === "function") refreshCampaignAnalyticsIfVisible();
   }, (err) => console.error("Campaign fields snapshot error:", err));
 }
 
@@ -78,15 +104,18 @@ function renderCampaignsView() {
   const wrap = document.getElementById("view-campaigns");
   if (!wrap) return;
 
+  const isSA = CURRENT_USER.role === "superadmin";
+
   wrap.innerHTML = `
   <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
     <div>
-      <h1 class="page-title"><i class="bi bi-columns-gap me-2"></i>Campaign Form Builder</h1>
-      <p class="page-subtitle">Create campaign lead forms — Admins select a campaign when adding a lead, no code changes needed.</p>
+      <h1 class="page-title"><i class="bi bi-columns-gap me-2"></i>Campaign Management</h1>
+      <p class="page-subtitle">Create campaign lead forms, and manage campaign lifecycle — Admins select a campaign when adding a lead, no code changes needed.</p>
     </div>
+    ${isSA ? `
     <button class="btn btn-brand" onclick="openCampaignModal()">
       <i class="bi bi-plus-lg me-1"></i>Create Campaign
-    </button>
+    </button>` : ""}
   </div>
 
   ${ALL_CAMPAIGNS.length === 0 ? `
@@ -98,39 +127,75 @@ function renderCampaignsView() {
       <table class="table align-middle table-hover mb-0">
         <thead>
           <tr>
-            <th>Campaign Name</th>
-            <th>Fields</th>
+            <th>Campaign</th>
             <th>Status</th>
-            <th>Created</th>
+            <th>Total Leads</th>
+            <th>Created Date</th>
+            <th>Last Updated</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           ${ALL_CAMPAIGNS.map((c) => {
+            const status = getCampaignStatus(c);
             const fieldCount = (CAMPAIGN_FIELDS_CACHE[c.id] || []).length;
+            const totalLeads = _leadsForCampaign(c.id).length;
             const created = c.createdAt ? formatDateTime(c.createdAt.toDate()) : "—";
+            const updated = c.updatedAt ? formatDateTime(c.updatedAt.toDate()) : created;
+            const isArchived = status === "archived";
+
+            // Built as a plain string (not nested template ternaries) to keep
+            // the markup easy to read and safe to edit.
+            let actionsHtml = `
+                <button class="btn btn-outline-secondary" title="View" onclick="openCampaignDetailsModal('${c.id}')">
+                  <i class="bi bi-eye"></i>
+                </button>`;
+
+            if (isSA) {
+              actionsHtml += `
+                <button class="btn btn-outline-primary" title="Manage Fields" onclick="openFieldBuilderModal('${c.id}')" ${isArchived ? "disabled" : ""}>
+                  <i class="bi bi-ui-checks-grid"></i>
+                </button>
+                <button class="btn btn-outline-secondary" title="Edit" onclick="openCampaignModal('${c.id}')" ${isArchived ? "disabled" : ""}>
+                  <i class="bi bi-pencil-square"></i>
+                </button>
+                <button class="btn btn-outline-info" title="Clone" onclick="cloneCampaign('${c.id}')">
+                  <i class="bi bi-copy"></i>
+                </button>`;
+
+              if (isArchived) {
+                actionsHtml += `
+                <button class="btn btn-outline-success" title="Restore from Archive" onclick="restoreCampaign('${c.id}')">
+                  <i class="bi bi-arrow-counterclockwise"></i>
+                </button>`;
+              } else {
+                const activateTitle = status === "inactive" ? "Activate" : "Deactivate";
+                const activateIcon  = status === "inactive" ? "bi-play-circle" : "bi-pause-circle";
+                const activateClass = status === "inactive" ? "btn-outline-success" : "btn-outline-secondary";
+                actionsHtml += `
+                <button class="btn btn-outline-warning" title="Archive" onclick="confirmArchiveCampaign('${c.id}')">
+                  <i class="bi bi-archive"></i>
+                </button>
+                <button class="btn ${activateClass}" title="${activateTitle}" onclick="toggleCampaignActive('${c.id}', ${status === "inactive"})">
+                  <i class="bi ${activateIcon}"></i>
+                </button>`;
+              }
+            }
+
             return `
           <tr>
-            <td class="fw-semibold">${escapeHtml(c.name)}</td>
-            <td>${fieldCount} field${fieldCount === 1 ? "" : "s"}</td>
-            <td>${c.active === false
-              ? '<span class="badge bg-danger">Inactive</span>'
-              : '<span class="badge bg-success">Active</span>'}</td>
+            <td>
+              <div class="fw-semibold">${escapeHtml(c.name)}</div>
+              <div class="small text-muted">${fieldCount} custom field${fieldCount === 1 ? "" : "s"}</div>
+            </td>
+            <td>${CAMPAIGN_STATUS_BADGE[status]}</td>
+            <td>${totalLeads}</td>
             <td class="text-nowrap">${created}</td>
+            <td class="text-nowrap">${updated}</td>
             <td class="text-nowrap">
-              <button class="btn btn-sm btn-outline-primary" onclick="openFieldBuilderModal('${c.id}')">
-                <i class="bi bi-ui-checks-grid"></i> Manage Fields
-              </button>
-              <button class="btn btn-sm btn-outline-secondary" onclick="openCampaignModal('${c.id}')">
-                <i class="bi bi-pencil-square"></i>
-              </button>
-              <button class="btn btn-sm ${c.active === false ? "btn-outline-success" : "btn-outline-warning"}"
-                onclick="toggleCampaignActive('${c.id}', ${c.active === false})">
-                ${c.active === false ? "Activate" : "Deactivate"}
-              </button>
-              <button class="btn btn-sm btn-outline-danger" onclick="confirmDeleteCampaign('${c.id}')">
-                <i class="bi bi-trash"></i>
-              </button>
+              <div class="btn-group btn-group-sm" role="group">
+                ${actionsHtml}
+              </div>
             </td>
           </tr>`;
           }).join("")}
@@ -143,6 +208,10 @@ function renderCampaignsView() {
 // ── Create / Edit Campaign ───────────────────────────────────
 function openCampaignModal(campaignId) {
   const c = campaignId ? ALL_CAMPAIGNS.find((x) => x.id === campaignId) : null;
+  if (c && getCampaignStatus(c) === "archived") {
+    toast("Archived campaigns are read-only. Restore it first to edit.", "warning");
+    return;
+  }
   document.getElementById("campaignModalTitle").textContent = c ? "Edit Campaign" : "Create Campaign";
   document.getElementById("campaignId").value = c ? c.id : "";
   document.getElementById("campaignName").value = c ? c.name : "";
@@ -180,12 +249,113 @@ async function saveCampaign() {
 }
 
 async function toggleCampaignActive(id, makeActive) {
+  const c = ALL_CAMPAIGNS.find(x => x.id === id);
+  if (c && getCampaignStatus(c) === "archived") {
+    toast("Archived campaigns are read-only. Restore it first.", "warning");
+    return;
+  }
   try {
     await campaignsRef.doc(id).update({ active: makeActive, updatedAt: firebase.firestore.Timestamp.now() });
     toast(makeActive ? "Campaign activated." : "Campaign deactivated.", "success");
   } catch (err) {
     console.error(err);
     toast("Failed to update campaign status.", "danger");
+  }
+}
+
+// ── Archive / Restore (soft-delete — data is never removed) ──
+function confirmArchiveCampaign(id) {
+  const c = ALL_CAMPAIGNS.find(x => x.id === id);
+  if (!c) return;
+  const leadCount = _leadsForCampaign(id).length;
+  if (!confirm(
+    `Archive campaign "${c.name}"?\n\n` +
+    `It will be hidden from Add Lead and become read-only. ` +
+    `${leadCount} existing lead(s) keep all their data and remain visible in reports.`
+  )) return;
+
+  (async () => {
+    try {
+      await campaignsRef.doc(id).update({
+        archived: true,
+        active: false,
+        archivedAt: firebase.firestore.Timestamp.now(),
+        archivedBy: CURRENT_USER.uid,
+        updatedAt: firebase.firestore.Timestamp.now()
+      });
+      toast("Campaign archived. Historical data is preserved.", "success");
+    } catch (err) {
+      console.error(err);
+      toast("Failed to archive campaign.", "danger");
+    }
+  })();
+}
+
+async function restoreCampaign(id) {
+  try {
+    // Restored campaigns come back as Inactive (not immediately selectable in
+    // Add Lead) so a Super Admin can review the form fields before re-enabling it.
+    await campaignsRef.doc(id).update({
+      archived: false,
+      active: false,
+      updatedAt: firebase.firestore.Timestamp.now()
+    });
+    toast("Campaign restored as Inactive. Activate it when ready.", "success");
+  } catch (err) {
+    console.error(err);
+    toast("Failed to restore campaign.", "danger");
+  }
+}
+
+// ── Clone Campaign ────────────────────────────────────────────
+// Copies campaign name (with a suffix), all field definitions (label, type,
+// validation/required, options, displayOrder, placeholder, help text, default
+// value). Never copies lead data — the clone starts with zero leads.
+async function cloneCampaign(id) {
+  const c = ALL_CAMPAIGNS.find(x => x.id === id);
+  if (!c) return;
+
+  const defaultName = `${c.name} - Copy`;
+  const newName = prompt("Name for the cloned campaign:", defaultName);
+  if (newName === null) return; // cancelled
+  const trimmedName = newName.trim();
+  if (!trimmedName) { toast("Campaign name is required.", "warning"); return; }
+
+  try {
+    const now = firebase.firestore.Timestamp.now();
+    const newCampaignRef = campaignsRef.doc();
+    const batch = db.batch();
+
+    batch.set(newCampaignRef, {
+      name: trimmedName,
+      active: true,
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+      createdBy: CURRENT_USER.uid,
+      clonedFrom: c.id
+    });
+
+    const sourceFields = (CAMPAIGN_FIELDS_CACHE[id] || []).slice().sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+    sourceFields.forEach((f) => {
+      batch.set(campaignFieldsRef.doc(), {
+        campaignId:   newCampaignRef.id,
+        fieldLabel:   f.fieldLabel,
+        fieldType:    f.fieldType,
+        required:     !!f.required,
+        placeholder:  f.placeholder || "",
+        options:      f.options || [],
+        displayOrder: f.displayOrder || 0,
+        helpText:     f.helpText || "",
+        defaultValue: f.defaultValue || ""
+      });
+    });
+
+    await batch.commit();
+    toast(`Campaign cloned as "${trimmedName}" (${sourceFields.length} field${sourceFields.length === 1 ? "" : "s"} copied, no leads).`, "success");
+  } catch (err) {
+    console.error(err);
+    toast("Failed to clone campaign.", "danger");
   }
 }
 
@@ -407,7 +577,7 @@ function refreshLeadCampaignDropdown() {
   if (!sel) return;
   const current = sel.value;
 
-  const activeCampaigns = ALL_CAMPAIGNS.filter((c) => c.active !== false);
+  const activeCampaigns = ALL_CAMPAIGNS.filter((c) => getCampaignStatus(c) === "active");
   sel.innerHTML = `
     <option value="">Select Campaign…</option>
     <option value="__none__">General / No Campaign</option>
@@ -609,6 +779,13 @@ function openLeadDetailsModal(leadId) {
   rows.push(["Assignment Type", lead.assignedBy || (lead.assignmentPending ? "Pending" : "—")]);
   rows.push(["Assigned At", lead.assignedAt ? formatDateTime(lead.assignedAt.toDate()) : "—"]);
   rows.push(["Status", lead.status || "—"]);
+  
+  // Show consecutive "Not Picking Call" attempt counter
+  if (lead.consecutiveNotPickingAttempts > 0) {
+    const maxAttempts = getCRMSetting("maxConsecutiveNotPickingAttempts") || 3;
+    const label = "Consecutive Not Picking Call";
+    rows.push([label, `${lead.consecutiveNotPickingAttempts}/${maxAttempts}`]);
+  }
 
   document.getElementById("leadDetailsModalTitle").textContent = `Sl.No ${lead.slNo} — ${lead.fullName}`;
   document.getElementById("leadDetailsModalBody").innerHTML = rows.map((r) => {

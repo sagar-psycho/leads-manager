@@ -33,17 +33,17 @@ function _defaultConfig() {
     // § 4 Holidays  (array stored under holidays key)
     holidays: [],
     // § 5-6 Lead / Follow-up Rules
-    uncontactedAlertMinutes:    30,
-    reminderAfterMinutes:       30,
-    reminderFreqMinutes:        30,
-    maxReminderCount:           5,
-    maxNotPickingAttempts:      3,
-    assignmentIntervalMinutes:  30,   // gradual dispatch interval
-    lunchStart:                "13:00", // half-day boundary
-    autoMoveNotInterested:      true,
-    autoFollowUp:            true,
-    autoReminder:            true,
-    autoEscalation:          false,
+    uncontactedAlertMinutes:           30,
+    reminderAfterMinutes:              30,
+    reminderFreqMinutes:               30,
+    maxReminderCount:                  5,
+    maxConsecutiveNotPickingAttempts:  3,   // Maximum consecutive Not Picking Call attempts
+    assignmentIntervalMinutes:         30,   // gradual dispatch interval
+    lunchStart:                       "13:00", // half-day boundary
+    autoMoveToNoResponse:             true,  // Auto-move to "No Response" after max consecutive attempts
+    autoFollowUp:                     true,
+    autoReminder:                     true,
+    autoEscalation:                   false,
     // § 8 Notifications
     browserNotifications:    true,
     toastNotifications:      true,
@@ -349,11 +349,11 @@ function _sectionFollowUp(g, ro) {
 
 function _sectionNotPicking(g, ro) {
   return `
-  <label class="form-label small fw-semibold">Max attempts before auto "Not Interested"</label>
+  <label class="form-label small fw-semibold">Maximum Consecutive Not Picking Call Attempts</label>
   <div class="d-flex align-items-center gap-3 mt-1">
-    <input type="number" id="cfg_maxAttempts" class="form-control"
-           style="max-width:100px" min="1" max="20" value="${g.maxNotPickingAttempts||3}" ${ro}>
-    <span class="text-muted small">After this count, status becomes <strong>Not Interested</strong>.</span>
+    <input type="number" id="cfg_maxConsecutiveAttempts" class="form-control"
+           style="max-width:100px" min="1" max="20" value="${g.maxConsecutiveNotPickingAttempts||3}" ${ro}>
+    <span class="text-muted small">After this count of consecutive attempts with no answer, status becomes <strong>No Response</strong>.</span>
   </div>`;
 }
 
@@ -371,7 +371,7 @@ function _toggle(id, label, checked, ro) {
 function _sectionAutoStatus(g, ro) {
   return `
   <div class="d-flex flex-column gap-3">
-    ${_toggle("cfg_autoMoveNI",    "Auto Move to Not Interested", g.autoMoveNotInterested, ro)}
+    ${_toggle("cfg_autoMoveNoResponse", "Auto Move to No Response", g.autoMoveToNoResponse, ro)}
     ${_toggle("cfg_autoFollowUp",  "Auto Follow-up Scheduling",   g.autoFollowUp,          ro)}
     ${_toggle("cfg_autoReminder",  "Auto Reminder Toasts",        g.autoReminder,          ro)}
     ${_toggle("cfg_autoEscalation","Auto Escalation to Admin",    g.autoEscalation,        ro)}
@@ -483,10 +483,10 @@ async function saveAllCRMSettings() {
       reminderAfterMinutes:    parseInt(document.getElementById("cfg_reminderAfter")?.value)    || 30,
       reminderFreqMinutes:     parseInt(document.getElementById("cfg_reminderFreq")?.value)     || 30,
       maxReminderCount:        parseInt(document.getElementById("cfg_maxReminder")?.value)      || 5,
-      maxNotPickingAttempts:   parseInt(document.getElementById("cfg_maxAttempts")?.value)      || 3,
+      maxConsecutiveNotPickingAttempts: parseInt(document.getElementById("cfg_maxConsecutiveAttempts")?.value) || 3,
       assignmentIntervalMinutes: parseInt(document.getElementById("cfg_assignInterval")?.value) || 30,
       lunchStart:              document.getElementById("cfg_lunchStart")?.value                  || "13:00",
-      autoMoveNotInterested:   document.getElementById("cfg_autoMoveNI")?.checked      ?? true,
+      autoMoveToNoResponse:    document.getElementById("cfg_autoMoveNoResponse")?.checked ?? true,
       autoFollowUp:            document.getElementById("cfg_autoFollowUp")?.checked    ?? true,
       autoReminder:            document.getElementById("cfg_autoReminder")?.checked    ?? true,
       autoEscalation:          document.getElementById("cfg_autoEscalation")?.checked  ?? false,

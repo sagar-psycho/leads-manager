@@ -61,6 +61,7 @@ async function initApp() {
   // Post-login checks
   await checkAISetupPrompt();
   await checkHolidayWelcome();       // show welcome popup if yesterday was a holiday
+  await checkAndRunMigration();      // one-time migration: Not Picking Call → No Response
 }
 
 function buildNav() {
@@ -122,7 +123,15 @@ function buildNav() {
       <i class="bi bi-people"></i> Manage Team
     </a>
     <a href="#" class="nav-link nav-item-link" data-view="campaigns">
-      <i class="bi bi-columns-gap"></i> Campaign Form Builder
+      <i class="bi bi-columns-gap"></i> Campaign Management
+    </a>`;
+  }
+
+  // Campaign Reports — Admin and Super Admin only
+  if (!isMember) {
+    html += `
+    <a href="#" class="nav-link nav-item-link" data-view="campaignreports">
+      <i class="bi bi-file-earmark-bar-graph"></i> Campaign Reports
     </a>`;
   }
 
@@ -166,7 +175,11 @@ function showView(viewName) {
     renderUrgentActions();
   }
   if (viewName === "myfollowups") renderMyFollowUps();
-  if (viewName === "report")      initReportControls();
+  if (viewName === "report") {
+    initReportControls();
+    const campaignPanel = document.getElementById("campaignReportsPanel");
+    if (campaignPanel && !campaignPanel.classList.contains("d-none")) renderCampaignReportsPanel();
+  }
   if (viewName === "aisettings")  renderAISettingsView();
   if (viewName === "crmsettings") renderCRMSettingsView();
   if (viewName === "leave")       loadLeaveView();
@@ -174,6 +187,7 @@ function showView(viewName) {
   if (viewName === "auditlog")    renderAuditLog();
   if (viewName === "callaudit")   renderCallAuditDashboard();
   if (viewName === "campaigns")   renderCampaignsView();
+  if (viewName === "campaignreports") renderCampaignReportsPanel();
 }
 
 // ── Dashboard Cards ───────────────────────────────────────────
@@ -188,38 +202,105 @@ async function renderDashboardCards() {
   const today = new Date().toISOString().slice(0, 10);
 
   // Parallel fetches
-  const [pendingSnap, assignedSnap, leaveSnap, queueSnap] = await Promise.all([
+  const [pendingSnap, assignedSnap, queueSnap, leaveSnapSingle, leaveSnapMultiple] = await Promise.all([
     leadsRef.where("assignmentPending", "==", true).get(),
     leadsRef.where("assignedAt", ">=", firebase.firestore.Timestamp.fromDate(
       new Date(today + "T00:00:00"))).get(),
+    assignmentQueueRef.get(),
     leavesRef.where("date", "==", today).where("status", "==", "Approved").get(),
-    assignmentQueueRef.get()
+    leavesRef.where("leaveType", "==", "Multiple Days").where("status", "==", "Approved").get()
   ]);
+
+  // Calculate leave statistics
+  const leavesToday = [];
+  const halfDayToday = [];
+  
+  // Single day leaves
+  leaveSnapSingle.forEach(d => {
+    const leave = d.data();
+    leavesToday.push(leave);
+    if (leave.leaveType === "Half Day Morning" || leave.leaveType === "Half Day Afternoon") {
+      halfDayToday.push(leave);
+    }
+  });
+  
+  // Multiple day leaves that include today
+  leaveSnapMultiple.forEach(d => {
+    const leave = d.data();
+    if (leave.dateFrom && leave.dateTo) {
+      if (today >= leave.dateFrom && today <= leave.dateTo) {
+        leavesToday.push(leave);
+      }
+    }
+  });
 
   const pendingCount  = pendingSnap.size;
   const assignedToday = assignedSnap.size;
-  const onLeave       = leaveSnap.size;
+  const onLeaveCount  = leavesToday.length;
+  const halfDayCount  = halfDayToday.length;
   const queueCount    = queueSnap.size;
 
-  const upcomingHols = (CRM_CONFIG.holidays || [])
-    .filter(h => h.date >= today)
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .slice(0, 3);
+  // Calculate available members now
+  const todayLeaves = leavesToday;
+  let availableNow = 0;
+  ACTIVE_MEMBERS.forEach(member => {
+    if (isMemberAvailableNow(member.id, todayLeaves)) {
+      availableNow++;
+    }
+  });
 
-  const workingMembers = ACTIVE_MEMBERS.length - onLeave;
+  const workingToday = ACTIVE_MEMBERS.length - (onLeaveCount - halfDayCount);
+
+  // ✅ NEW: Calculate follow-up statistics
+  const now = Date.now();
+  let todayFollowups = 0;
+  let dueNowFollowups = 0;
+  let overdueFollowups = 0;
+  let completedTodayFollowups = 0;
+  
+  ALL_LEADS.forEach(lead => {
+    if (lead.hasPendingFollowUp && lead.followUp) {
+      // Check if scheduled for today
+      if (lead.followUp.scheduledDate === today && lead.followUp.status === "Pending") {
+        todayFollowups++;
+        
+        // Check if due now or overdue
+        const scheduledTime = new Date(`${lead.followUp.scheduledDate}T${lead.followUp.scheduledTime}`).getTime();
+        if (scheduledTime <= now) {
+          dueNowFollowups++;
+          if (scheduledTime < now - 15 * 60000) { // overdue by more than 15 min
+            overdueFollowups++;
+          }
+        }
+      }
+      
+      // Check if completed today
+      if (lead.followUp.status === "Completed" && lead.followUp.completedAt) {
+        const completedDate = lead.followUp.completedAt.toDate().toISOString().slice(0, 10);
+        if (completedDate === today) {
+          completedTodayFollowups++;
+        }
+      }
+    }
+  });
 
   const cards = [
-    { icon: "bi-hourglass-split", label: "Pending Assignment", value: pendingCount,  color: "var(--amber)" },
-    { icon: "bi-person-check",    label: "Today's Assigned",   value: assignedToday, color: "#1E7A34" },
-    { icon: "bi-calendar2-x",     label: "In Assignment Queue",value: queueCount,    color: "#B23434" },
-    { icon: "bi-person-dash",     label: "On Leave Today",     value: onLeave,       color: "#C05621" },
-    { icon: "bi-people-fill",     label: "Working Today",      value: workingMembers < 0 ? 0 : workingMembers, color: "var(--steel)" },
-    { icon: "bi-calendar-event",  label: "Upcoming Holidays",  value: upcomingHols.length, color: "#6339B5" }
+    { icon: "bi-people-fill",     label: "Working Today",      value: workingToday < 0 ? 0 : workingToday, color: "#1E7A34", tooltip: "Members not on full-day leave" },
+    { icon: "bi-person-dash",     label: "On Leave Today",     value: onLeaveCount,    color: "#B23434", tooltip: "Full day + Half day leaves" },
+    { icon: "bi-clock",           label: "Half Day Leave",     value: halfDayCount,    color: "#C05621", tooltip: "Morning/Afternoon half days" },
+    { icon: "bi-person-check-fill", label: "Available Now",    value: availableNow,    color: "#1E7A34", tooltip: "Available for assignment right now" },
+    { icon: "bi-hourglass-split", label: "Pending Assignment", value: pendingCount,    color: "var(--amber)", tooltip: "Waiting for assignment" },
+    { icon: "bi-calendar2-x",     label: "In Assignment Queue",value: queueCount,      color: "var(--steel)", tooltip: "Queued for gradual dispatch" },
+    // ✅ NEW: Follow-up KPI cards
+    { icon: "bi-calendar-check",  label: "Today's Follow-ups", value: todayFollowups,  color: "#3E6D9C", tooltip: "Follow-ups scheduled for today" },
+    { icon: "bi-alarm",           label: "Due Now",            value: dueNowFollowups, color: "#C05621", tooltip: "Follow-ups due right now" },
+    { icon: "bi-exclamation-triangle", label: "Overdue",       value: overdueFollowups,color: "#B23434", tooltip: "Follow-ups overdue by 15+ min" },
+    { icon: "bi-check-circle",    label: "Completed Today",    value: completedTodayFollowups, color: "#1E7A34", tooltip: "Follow-ups completed today" }
   ];
 
   grid.innerHTML = cards.map(c => `
     <div class="col-6 col-md-4 col-lg-2">
-      <div class="dash-stat-card">
+      <div class="dash-stat-card" title="${c.tooltip}">
         <div class="dash-stat-icon" style="color:${c.color}">
           <i class="bi ${c.icon}"></i>
         </div>
@@ -228,40 +309,98 @@ async function renderDashboardCards() {
       </div>
     </div>`).join("");
 
-  // Pending leads detail list
-  if (pendingCount === 0) {
-    listWrap.innerHTML = "";
-    return;
+  // Team Availability Details
+  if (onLeaveCount > 0 || halfDayCount > 0) {
+    const availabilityHtml = `
+    <div class="crm-settings-card mb-4">
+      <div class="crm-settings-card-header">
+        <i class="bi bi-people me-2"></i>Team Availability Today
+      </div>
+      <div class="crm-settings-card-body">
+        <div class="row g-3">
+          ${leavesToday.map(leave => `
+          <div class="col-12 col-md-6 col-lg-4">
+            <div class="availability-card">
+              <div class="d-flex align-items-center gap-2">
+                <div class="availability-icon ${_getLeaveIconClass(leave.leaveType)}">
+                  <i class="bi ${_getLeaveIcon(leave.leaveType)}"></i>
+                </div>
+                <div class="flex-grow-1">
+                  <div class="fw-semibold">${escapeHtml(leave.memberName || "Unknown")}</div>
+                  <div class="small text-muted">${leave.leaveType}</div>
+                  ${leave.reason ? `<div class="small text-muted fst-italic">${escapeHtml(leave.reason)}</div>` : ''}
+                </div>
+              </div>
+            </div>
+          </div>`).join("")}
+        </div>
+      </div>
+    </div>`;
+    listWrap.innerHTML = availabilityHtml;
   }
 
-  const pendingLeads = [];
-  pendingSnap.forEach(d => pendingLeads.push({ id: d.id, ...d.data() }));
+  // Pending leads detail list
+  if (pendingCount > 0) {
+    const pendingLeads = [];
+    pendingSnap.forEach(d => pendingLeads.push({ id: d.id, ...d.data() }));
 
-  listWrap.innerHTML = `
-  <div class="crm-settings-card">
-    <div class="crm-settings-card-header">
-      <i class="bi bi-hourglass-split me-2"></i>Pending Assignment Leads
-    </div>
-    <div class="table-responsive">
-      <table class="table align-middle table-hover mb-0" style="font-size:13.5px">
-        <thead>
-          <tr>
-            <th>Sl.No</th><th>Name</th><th>Phone</th><th>Created</th><th>Reason</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${pendingLeads.map(l => `
-          <tr>
-            <td>${l.slNo}</td>
-            <td>${escapeHtml(l.fullName)}</td>
-            <td>${escapeHtml(l.phoneNumber)}</td>
-            <td>${l.createdAt ? formatDateTime(l.createdAt.toDate()) : "—"}</td>
-            <td><span class="badge badge-pending-assignment">${escapeHtml(l.assignmentReason || "Pending")}</span></td>
-          </tr>`).join("")}
-        </tbody>
-      </table>
-    </div>
-  </div>`;
+    const pendingHtml = `
+    <div class="crm-settings-card mb-4">
+      <div class="crm-settings-card-header">
+        <i class="bi bi-hourglass-split me-2"></i>Pending Assignment Leads
+      </div>
+      <div class="table-responsive">
+        <table class="table align-middle table-hover mb-0" style="font-size:13.5px">
+          <thead>
+            <tr>
+              <th>Sl.No</th><th>Name</th><th>Phone</th><th>Created</th><th>Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${pendingLeads.map(l => `
+            <tr>
+              <td>${l.slNo}</td>
+              <td>${escapeHtml(l.fullName)}</td>
+              <td>${escapeHtml(l.phoneNumber)}</td>
+              <td>${l.createdAt ? formatDateTime(l.createdAt.toDate()) : "—"}</td>
+              <td><span class="badge badge-pending-assignment">${escapeHtml(l.assignmentReason || "Pending")}</span></td>
+            </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+    
+    if (onLeaveCount === 0 && halfDayCount === 0) {
+      listWrap.innerHTML = pendingHtml;
+    } else {
+      listWrap.innerHTML += pendingHtml;
+    }
+  } else if (onLeaveCount === 0 && halfDayCount === 0) {
+    listWrap.innerHTML = "";
+  }
+
+  // Module 2 — Campaign Analytics (appended, never replaces the cards above)
+  if (typeof renderCampaignAnalyticsSection === "function") renderCampaignAnalyticsSection();
+}
+
+// Helper functions for leave display
+function _getLeaveIcon(leaveType) {
+  const icons = {
+    "Full Day": "calendar-x",
+    "Half Day Morning": "sunrise",
+    "Half Day Afternoon": "sunset",
+    "Multiple Days": "calendar-range",
+    "Work From Home": "house",
+    "Sick Leave": "thermometer",
+    "Emergency Leave": "exclamation-triangle"
+  };
+  return icons[leaveType] || "calendar-x";
+}
+
+function _getLeaveIconClass(leaveType) {
+  if (leaveType === "Work From Home") return "availability-icon-wfh";
+  if (leaveType === "Half Day Morning" || leaveType === "Half Day Afternoon") return "availability-icon-half";
+  return "availability-icon-leave";
 }
 
 // ── Audit Log ─────────────────────────────────────────────────

@@ -154,9 +154,12 @@ h1, h2, h3, .auth-brand-title, .sidebar-brand-title {
 .badge-not-picking { background: #FDE4CB; color: #9A4A0F; }
 .badge-interested { background: #D8F3DD; color: #1E7A34; }
 .badge-not-interested { background: #FBD7D7; color: #B23434; }
+.badge-no-response { background: #E3E8EF; color: #6B7A8D; border: 1px solid #C5CDD7; }
 .badge-job-seeker { background: #DCE8FB; color: #2A5A9C; }
 .badge-driver { background: #E7DEF9; color: #6339B5; }
 .badge-transporter { background: #D6F0EE; color: #157A72; }
+.badge-contacted { background: #D8F3DD; color: #1E7A34; }
+.badge-call-back-later { background: #E0E7FF; color: #4338CA; }
 .badge-pending-approval { background: #FEF3C7; color: #92600A; }
 .badge-recall-required { background: #E0E7FF; color: #4338CA; }
 
@@ -834,6 +837,70 @@ h1, h2, h3, .auth-brand-title, .sidebar-brand-title {
 .leave-approved  { background: #D8F3DD; color: #1E7A34; }
 .leave-pending   { background: #FEF3C7; color: #92600A; }
 .leave-rejected  { background: #FBD7D7; color: #B23434; }
+.leave-cancelled { background: #E3E8EF; color: #45566B; }
+
+/* Team Availability Cards */
+.availability-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  padding: 12px;
+  transition: box-shadow 0.15s;
+}
+.availability-card:hover {
+  box-shadow: 0 2px 8px rgba(15,44,70,0.08);
+}
+
+.availability-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.availability-icon-leave {
+  background: #FBD7D7;
+  color: #B23434;
+}
+.availability-icon-half {
+  background: #FEECDC;
+  color: #C05621;
+}
+.availability-icon-wfh {
+  background: #D8F3DD;
+  color: #1E7A34;
+}
+
+/* Leave tabs */
+#leaveTabs .nav-link {
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 13.5px;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+}
+#leaveTabs .nav-link:hover {
+  color: var(--navy);
+}
+#leaveTabs .nav-link.active {
+  color: var(--navy);
+  border-bottom-color: var(--navy);
+}
+
+/* Table card header variant */
+.table-card-header {
+  background: #FAFBFD;
+  border-bottom: 1px solid var(--border-soft);
+  padding: 12px 18px;
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--navy);
+  display: flex;
+  align-items: center;
+}
 
 /* ============================================================
    AUDIT LOG — action badges
@@ -1042,4 +1109,199 @@ h1, h2, h3, .auth-brand-title, .sidebar-brand-title {
   flex: 1;
   color: var(--text-dark);
   word-break: break-word;
+}
+/* ============================================================
+   CAMPAIGN MANAGEMENT / ANALYTICS / REPORTS — Modules 1, 2, 3
+   Reuses existing tokens (--navy, --steel, --brand, --border-soft)
+   ============================================================ */
+.report-tabs .nav-link {
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.report-tabs .nav-link.active {
+  color: var(--navy);
+  border-bottom: 2px solid var(--navy);
+}
+
+/* Print: only the report content prints, not the app shell/controls */
+@media print {
+  .sidebar, .no-print, .report-period-controls, .report-tabs,
+  #toastContainer, .btn, .nav-item-link { display: none !important; }
+  .main-content { margin: 0 !important; padding: 0 !important; }
+  #campaignReportPrintArea { display: block !important; }
+}
+
+
+/* ============================================================
+   FOLLOW-UP SCHEDULING SYSTEM
+   ============================================================ */
+
+/* Follow-up validation messages */
+#followUpValidationMessages {
+  margin-bottom: 12px;
+}
+
+.followup-validation-error {
+  background: #FBD7D7;
+  border: 1px solid #f5b8b8;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #B23434;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: start;
+  gap: 8px;
+}
+
+.followup-validation-warning {
+  background: #FEF3C7;
+  border: 1px solid #F6D860;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #92600A;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: start;
+  gap: 8px;
+}
+
+.followup-validation-suggestion {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 4px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.followup-validation-suggestion:hover {
+  background: rgba(255, 255, 255, 0.8);
+}
+
+/* Follow-up status badges */
+.followup-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.followup-pending {
+  background: #FEF3C7;
+  color: #92600A;
+}
+
+.followup-completed {
+  background: #D8F3DD;
+  color: #1E7A34;
+}
+
+.followup-overdue {
+  background: #FBD7D7;
+  color: #B23434;
+}
+
+.followup-cancelled {
+  background: #E3E8EF;
+  color: #45566B;
+}
+
+/* Follow-up card with countdown/overdue timer */
+.followup-timer {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.followup-timer-due {
+  color: #1E7A34;
+}
+
+.followup-timer-soon {
+  color: #C05621;
+}
+
+.followup-timer-overdue {
+  color: #B23434;
+}
+
+/* Follow-up urgent card badge */
+.followup-urgent-badge {
+  background: #FBD7D7;
+  color: #B23434;
+  border: 1px solid #f5b8b8;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+/* Dashboard Follow-up KPI cards */
+.followup-kpi-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  padding: 14px;
+  text-align: center;
+  transition: transform 0.15s, box-shadow 0.15s;
+  cursor: pointer;
+}
+
+.followup-kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(15,44,70,0.12);
+}
+
+.followup-kpi-icon {
+  font-size: 24px;
+  margin-bottom: 8px;
+}
+
+.followup-kpi-value {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+.followup-kpi-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+
+/* Follow-up details in timeline */
+.followup-timeline-details {
+  background: #F5F7FA;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  margin-top: 6px;
+}
+
+.followup-timeline-details-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+}
+
+.followup-timeline-details-label {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.followup-timeline-details-value {
+  color: var(--text-dark);
 }
