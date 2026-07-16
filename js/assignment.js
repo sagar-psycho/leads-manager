@@ -15,6 +15,16 @@ const assignmentQueueRef = db.collection("assignmentQueue");
 const auditLogRef        = db.collection("auditLog");
 const leavesRef          = db.collection("leaves");
 
+function getAssignmentRoleForLead(lead) {
+  if (!lead) return DEFAULT_ASSIGNMENT_ROLE;
+  if (lead.assignmentRole) return lead.assignmentRole;
+  if (lead.campaignId && typeof ALL_CAMPAIGNS !== "undefined") {
+    const campaign = ALL_CAMPAIGNS.find((c) => c.id === lead.campaignId);
+    if (campaign && campaign.defaultAssignmentRole) return campaign.defaultAssignmentRole;
+  }
+  return DEFAULT_ASSIGNMENT_ROLE;
+}
+
 // ── Audit log writer ──────────────────────────────────────────
 async function writeAuditLog(leadId, slNo, action, reason, actorName) {
   try {
@@ -72,9 +82,9 @@ async function getTodayLeaves() {
   return leaves;
 }
 
-// ── Check if a specific member is available right now ─────────
-function isMemberAvailableNow(memberId, todayLeaves) {
-  const leave = todayLeaves.find(l => l.memberId === memberId);
+// ── Check if a specific user is available right now ──────────
+function isUserAvailableNow(userId, todayLeaves) {
+  const leave = todayLeaves.find(l => l.memberId === userId);
   if (!leave) return true;
 
   const type = leave.leaveType;
@@ -102,29 +112,58 @@ function isMemberAvailableNow(memberId, todayLeaves) {
   return true;
 }
 
-// ── Get next available member (round-robin, skip unavailable) ─
-async function getNextAvailableMember(todayLeaves) {
-  await refreshActiveMembers();
-  if (ACTIVE_MEMBERS.length === 0) return null;
+function isMemberAvailableNow(memberId, todayLeaves) {
+  return isUserAvailableNow(memberId, todayLeaves);
+}
 
-  const rrSnap = await metaRef.doc("roundRobin").get();
-  const lastIndex = rrSnap.exists ? (rrSnap.data().lastIndex ?? -1) : -1;
+async function getNextAvailableUserByRole(role, todayLeaves) {
+  if (role === "hr") {
+    await refreshActiveHR();
+  } else {
+    await refreshActiveMembers();
+  }
 
-  for (let i = 1; i <= ACTIVE_MEMBERS.length; i++) {
-    const idx = (lastIndex + i) % ACTIVE_MEMBERS.length;
-    const member = ACTIVE_MEMBERS[idx];
-    if (isMemberAvailableNow(member.id, todayLeaves)) {
-      await metaRef.doc("roundRobin").set({ lastIndex: idx }, { merge: true });
-      return member;
+  const activeList = role === "hr" ? ACTIVE_HR : ACTIVE_MEMBERS;
+  if (!activeList || activeList.length === 0) return null;
+
+  const roundRobinDocId = role === "member" ? "roundRobin_member" : `roundRobin_${role}`;
+  const rrSnap = await metaRef.doc(roundRobinDocId).get();
+  let lastIndex = rrSnap.exists ? (rrSnap.data().lastIndex ?? -1) : -1;
+
+  // Backwards compatibility for the original shared round robin document.
+  if (role === "member" && lastIndex < 0) {
+    const legacySnap = await metaRef.doc("roundRobin").get();
+    if (legacySnap.exists) lastIndex = legacySnap.data().lastIndex ?? -1;
+  }
+
+  for (let i = 1; i <= activeList.length; i++) {
+    const idx = (lastIndex + i) % activeList.length;
+    const user = activeList[idx];
+    if (isUserAvailableNow(user.id, todayLeaves)) {
+      await metaRef.doc(roundRobinDocId).set({ lastIndex: idx }, { merge: true });
+      return user;
     }
   }
-  return null; // all members unavailable
+  return null; // all users unavailable
+}
+
+async function getNextAvailableMember(todayLeaves) {
+  return getNextAvailableUserByRole("member", todayLeaves);
 }
 
 // ── Smart createLead — used instead of the original ───────────
 async function smartCreateLead(formData) {
-  if (ACTIVE_MEMBERS.length === 0) {
-    throw new Error("No active sales members exist. Add a member before creating leads.");
+  const assignmentRole = formData.assignmentRole || DEFAULT_ASSIGNMENT_ROLE;
+  if (assignmentRole === "hr") {
+    await refreshActiveHR();
+    if (!ACTIVE_HR || ACTIVE_HR.length === 0) {
+      throw new Error("No active HR users exist. Add an HR user before creating leads for this campaign.");
+    }
+  } else {
+    await refreshActiveMembers();
+    if (!ACTIVE_MEMBERS || ACTIVE_MEMBERS.length === 0) {
+      throw new Error("No active sales members exist. Add a member before creating leads.");
+    }
   }
 
   const counterDocRef = metaRef.doc("leadCounter");
@@ -132,7 +171,7 @@ async function smartCreateLead(formData) {
   const now           = firebase.firestore.Timestamp.now();
   const canAssign     = isValidAssignmentTime();
   const todayLeaves   = canAssign ? await getTodayLeaves() : [];
-  const assignedMember = canAssign ? await getNextAvailableMember(todayLeaves) : null;
+  const assignedMember = canAssign ? await getNextAvailableUserByRole(assignmentRole, todayLeaves) : null;
 
   let nextSlNo = 1;
 
@@ -154,6 +193,7 @@ async function smartCreateLead(formData) {
       lastContactedAt: null,
       nextFollowUpAt:  null,
       consecutiveNotPickingAttempts: 0,  // Track consecutive "Not Picking Call" attempts
+      assignmentRole: assignmentRole,
       // Campaign Form Builder — null/"" when the legacy "General / No Campaign" path is used
       campaignId:         formData.campaignId || null,
       campaignName:        formData.campaignName || null,
@@ -187,7 +227,9 @@ async function smartCreateLead(formData) {
           ? "Outside Office Hours"
           : isBreakTimeNow()
             ? "Break Time"
-            : "No Members Available";
+            : assignmentRole === "hr"
+              ? "No HR available"
+              : "No Sales Members available";
 
       t.set(newLeadRef, {
         ...baseFields,
@@ -259,9 +301,11 @@ async function dispatchPendingLeads() {
           return;
         }
         
-        const member = await getNextAvailableMember(todayLeaves);
+        const leadData = leadDoc.data();
+        const assignmentRole = getAssignmentRoleForLead(leadData);
+        const member = await getNextAvailableUserByRole(assignmentRole, todayLeaves);
         if (!member) {
-          await writeAuditLog(leadId, slNo, "Skipped", "No members available", "System");
+          await writeAuditLog(leadId, slNo, "Skipped", `No ${assignmentRole} available`, "System");
           return;
         }
 
@@ -274,7 +318,7 @@ async function dispatchPendingLeads() {
           assignmentPending: false,
           assignmentReason:  null,
           history:           firebase.firestore.FieldValue.arrayUnion({
-            text:          `Auto-assigned to ${member.name || member.email} at office opening`,
+            text:          `Auto-assigned to ${ASSIGNMENT_ROLE_LABELS[assignmentRole] || assignmentRole} ${member.name || member.email} at office opening`,
             statusAtTime:  "Not Open",
             updatedBy:     "system",
             updatedByName: "System Auto Assignment",

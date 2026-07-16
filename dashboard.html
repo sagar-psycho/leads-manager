@@ -205,6 +205,11 @@
         <!-- Rendered dynamically by call-audit.js → renderCallAuditDashboard() -->
       </section>
 
+      <!-- HR TRANSFER REQUESTS VIEW (Admin / Super Admin) -->
+      <section id="view-hrtransfers" class="view-section d-none">
+        <!-- Rendered dynamically by leads.js → renderHRTransferRequests() -->
+      </section>
+
       <!-- AUDIT LOG VIEW (Admin / Super Admin) -->
       <section id="view-auditlog" class="view-section d-none">
         <div class="mb-4">
@@ -396,7 +401,7 @@
 
             <div id="campaignFieldsContainer"></div>
 
-            <p class="small text-muted mb-0"><i class="bi bi-info-circle"></i> Sl.No and timestamp are generated automatically. The lead will be auto-assigned to the next sales member in rotation.</p>
+            <p class="small text-muted mb-0"><i class="bi bi-info-circle"></i> Sl.No and timestamp are generated automatically. The lead will be auto-assigned based on the campaign's default assignment role and availability rules.</p>
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -493,6 +498,13 @@
           <div class="mb-3">
             <label class="form-label">Campaign Name</label>
             <input type="text" class="form-control" id="campaignName" placeholder="e.g. Freight Services, Warehousing, Sea Freight...">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Default Assignment Role</label>
+            <select class="form-select" id="campaignDefaultAssignmentRole" required>
+              <option value="">Select role…</option>
+            </select>
+            <div class="form-text">Select which role should receive leads created for this campaign by default.</div>
           </div>
           <div class="form-check form-switch">
             <input class="form-check-input" type="checkbox" role="switch" id="campaignActive" checked>
@@ -956,6 +968,7 @@
               <select id="newUserRole" class="form-select" required>
                 <option value="member">Sales Member</option>
                 <option value="admin">Admin</option>
+                <option value="hr">HR</option>
               </select>
             </div>
           </div>

@@ -27,13 +27,14 @@ function renderUsersTable() {
     <tr>
       <td>${escapeHtml(u.name)}</td>
       <td>${escapeHtml(u.email)}</td>
-      <td><span class="badge ${u.role === "superadmin" ? "bg-dark" : u.role === "admin" ? "bg-primary" : "bg-secondary"}">${ROLE_LABELS[u.role] || u.role}</span></td>
+      <td><span class="badge ${u.role === "superadmin" ? "bg-dark" : u.role === "admin" ? "bg-primary" : u.role === "hr" ? "bg-info text-dark" : "bg-secondary"}">${ROLE_LABELS[u.role] || u.role}</span></td>
       <td>${u.active === false ? '<span class="badge bg-danger">Inactive</span>' : '<span class="badge bg-success">Active</span>'}</td>
       <td class="text-nowrap">
         ${u.role !== "superadmin" ? `
           <select class="form-select form-select-sm d-inline-block w-auto" onchange="changeUserRole('${u.id}', this.value)">
             <option value="admin" ${u.role === "admin" ? "selected" : ""}>Admin</option>
             <option value="member" ${u.role === "member" ? "selected" : ""}>Sales Member</option>
+            <option value="hr" ${u.role === "hr" ? "selected" : ""}>HR</option>
           </select>
           <button class="btn btn-sm ${u.active === false ? "btn-outline-success" : "btn-outline-warning"}" onclick="toggleUserActive('${u.id}', ${u.active === false})">
             ${u.active === false ? "Activate" : "Deactivate"}
@@ -79,6 +80,7 @@ if (addUserForm) {
       bootstrap.Modal.getInstance(document.getElementById("addUserModal")).hide();
       toast(`${ROLE_LABELS[role]} account created for ${name}.`, "success");
       await refreshActiveMembers();
+      if (typeof refreshActiveHR === "function") await refreshActiveHR();
     } catch (err) {
       console.error(err);
       let msg = "Failed to create account.";
@@ -99,6 +101,7 @@ async function changeUserRole(uid, newRole) {
     await usersRef.doc(uid).update({ role: newRole });
     toast("Role updated.", "success");
     await refreshActiveMembers();
+    if (typeof refreshActiveHR === "function") await refreshActiveHR();
   } catch (err) {
     console.error(err);
     toast("Failed to update role.", "danger");
@@ -110,6 +113,7 @@ async function toggleUserActive(uid, makeActive) {
     await usersRef.doc(uid).update({ active: makeActive });
     toast(makeActive ? "User activated." : "User deactivated.", "success");
     await refreshActiveMembers();
+    if (typeof refreshActiveHR === "function") await refreshActiveHR();
   } catch (err) {
     console.error(err);
     toast("Failed to update status.", "danger");

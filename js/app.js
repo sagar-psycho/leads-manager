@@ -7,7 +7,8 @@ let CURRENT_USER = null; // { uid, email, name, role, active }
 const ROLE_LABELS = {
   superadmin: "Super Admin",
   admin: "Admin",
-  member: "Sales Member"
+  member: "Sales Member",
+  hr: "HR"
 };
 
 async function initApp() {
@@ -68,6 +69,7 @@ function buildNav() {
   const nav     = document.getElementById("sideNav");
   const isSA    = CURRENT_USER.role === "superadmin";
   const isAdmin = CURRENT_USER.role === "admin";
+  const isHR    = CURRENT_USER.role === "hr";
   const isMember = CURRENT_USER.role === "member";
 
   let html = `
@@ -75,7 +77,7 @@ function buildNav() {
       <i class="bi bi-list-task"></i> Leads
     </a>`;
 
-  if (isMember) {
+  if (isMember || isHR) {
     html += `
     <a href="#" class="nav-link nav-item-link" data-view="myfollowups">
       <i class="bi bi-clock-history"></i> Follow-ups
@@ -99,6 +101,9 @@ function buildNav() {
     <a href="#" class="nav-link nav-item-link" data-view="callaudit">
       <i class="bi bi-clipboard-check"></i> Call Audit
     </a>
+    <a href="#" class="nav-link nav-item-link" data-view="hrtransfers">
+      <i class="bi bi-arrow-right-square"></i> HR Transfers
+    </a>
     <a href="#" class="nav-link nav-item-link" data-view="report">
       <i class="bi bi-file-earmark-text"></i> Daily Report
     </a>`;
@@ -114,7 +119,7 @@ function buildNav() {
       ${isMember ? '<span id="trainingProgressBadge" class="badge bg-info ms-auto d-none"></span>' : ''}
     </a>`;
 
-  if (!isMember) {
+  if (!isMember && !isHR) {
     html += `
     <a href="#" class="nav-link nav-item-link" data-view="auditlog">
       <i class="bi bi-journal-text"></i> Audit Log
@@ -132,7 +137,7 @@ function buildNav() {
   }
 
   // Campaign Reports — Admin and Super Admin only
-  if (!isMember) {
+  if (!isMember && !isHR) {
     html += `
     <a href="#" class="nav-link nav-item-link" data-view="campaignreports">
       <i class="bi bi-file-earmark-bar-graph"></i> Campaign Reports
@@ -169,7 +174,7 @@ function showView(viewName) {
   if (el) el.classList.remove("d-none");
 
   if (viewName === "urgent") {
-    const isMember = CURRENT_USER.role === "member";
+    const isMember = CURRENT_USER.role === "member" || CURRENT_USER.role === "hr";
     const titleEl    = document.getElementById("urgentViewTitle");
     const subtitleEl = document.getElementById("urgentViewSubtitle");
     if (titleEl)    titleEl.textContent    = isMember ? "My Urgent Actions" : "Urgent Actions";
@@ -191,6 +196,7 @@ function showView(viewName) {
   if (viewName === "auditlog")    renderAuditLog();
   if (viewName === "callaudit")   renderCallAuditDashboard();
   if (viewName === "campaigns")   renderCampaignsView();
+  if (viewName === "hrtransfers") renderHRTransferRequests();
   if (viewName === "campaignreports") renderCampaignReportsPanel();
   if (viewName === "training") {
     if (typeof loadTrainingView === "function") {

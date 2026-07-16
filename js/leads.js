@@ -186,7 +186,8 @@ const UNCONTACTED_ALERT_MINUTES = 30; // fallback — overridden at runtime by g
 // ============================================================
 
 let ALL_LEADS = [];       // current page leads only (not full dataset)
-let ACTIVE_MEMBERS = [];  // cached active member list for dropdowns
+let ACTIVE_MEMBERS = [];  // cached active sales member list for dropdowns
+let ACTIVE_HR = [];       // cached active HR list for dropdowns
 let toastedLeadIds = new Set(); // session-only, avoid repeat toast spam
 
 // Pagination state
@@ -292,6 +293,7 @@ function debounce(func, wait) {
 // ---------------- LOAD / SUBSCRIBE ----------------
 async function loadLeadsView() {
   await refreshActiveMembers();
+  await refreshActiveHR();
   await loadUserTablePreferences(); // Load user preferences first
   buildLeadFilterUI();
   buildPaginationControls();
@@ -405,7 +407,7 @@ function buildFirestoreQuery() {
   let query = leadsRef;
   
   // Role-based filtering
-  if (CURRENT_USER.role === "member") {
+  if (CURRENT_USER.role === "member" || CURRENT_USER.role === "hr") {
     query = query.where("assignedTo", "==", CURRENT_USER.uid);
   }
   
@@ -546,6 +548,222 @@ async function refreshActiveMembers() {
   ACTIVE_MEMBERS = [];
   snap.forEach((doc) => ACTIVE_MEMBERS.push({ id: doc.id, ...doc.data() }));
   ACTIVE_MEMBERS.sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
+}
+
+async function refreshActiveHR() {
+  const snap = await usersRef.where("role", "==", "hr").where("active", "==", true).get();
+  ACTIVE_HR = [];
+  snap.forEach((doc) => ACTIVE_HR.push({ id: doc.id, ...doc.data() }));
+  ACTIVE_HR.sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
+}
+
+async function createHRTransferRequest(leadId, leadData, noteText) {
+  const now = firebase.firestore.Timestamp.now();
+  const previousStatus = leadData.status || "Not Open";
+  if (leadData.transferRequestStatus === "Pending") {
+    toast("A Driver transfer request is already pending for this lead.", "warning");
+    return;
+  }
+
+  const transferRequest = {
+    transferRequestStatus: "Pending",
+    transferRequestedBy: CURRENT_USER.uid,
+    transferRequestedByName: CURRENT_USER.name || CURRENT_USER.email,
+    transferRequestedAt: now,
+    transferRequestRequestedStatus: "Driver",
+    transferRequestPreviousStatus: previousStatus,
+    transferRequestNote: noteText?.trim() || null
+  };
+
+  const historyEntry = {
+    text: `Driver transfer requested by ${CURRENT_USER.name || CURRENT_USER.email}. ${noteText?.trim() || ""}`.trim(),
+    statusAtTime: "Driver",
+    updatedBy: CURRENT_USER.uid,
+    updatedByName: CURRENT_USER.name || CURRENT_USER.email,
+    timestamp: new Date().toISOString()
+  };
+
+  await leadsRef.doc(leadId).update({
+    status: "Driver",
+    lastContactedAt: now,
+    nextFollowUpAt: null,
+    history: firebase.firestore.FieldValue.arrayUnion(historyEntry),
+    ...transferRequest
+  });
+
+  await notifyAdminsForHRTransfer({ id: leadId, ...leadData, ...transferRequest });
+  toast("Driver transfer request created and sent to Admin for approval.", "success");
+  renderHRTransferRequests();
+}
+
+async function assignLeadToHRDirectly(leadId, leadData, noteText, approvalMetadata = {}) {
+  const todayLeaves = isValidAssignmentTime() ? await getTodayLeaves() : [];
+  const hrUser = await getNextAvailableUserByRole("hr", todayLeaves);
+  if (!hrUser) {
+    throw new Error("No active HR user is currently available.");
+  }
+
+  const now = firebase.firestore.Timestamp.now();
+  const updateData = {
+    status: "Driver",
+    assignedTo: hrUser.id,
+    assignedToName: hrUser.name || hrUser.email,
+    assignedAt: now,
+    assignedBy: CURRENT_USER.name || CURRENT_USER.email,
+    assignmentPending: false,
+    assignmentReason: null,
+    transferRequestStatus: "Approved",
+    transferRequestApprovedBy: CURRENT_USER.uid,
+    transferRequestApprovedByName: CURRENT_USER.name || CURRENT_USER.email,
+    transferRequestApprovedAt: now,
+    transferRequestRequestedStatus: "Driver",
+    transferRequestNote: noteText?.trim() || null,
+    history: firebase.firestore.FieldValue.arrayUnion({
+      text: `Driver transfer approved and assigned to ${hrUser.name || hrUser.email}. ${noteText?.trim() || ""}`.trim(),
+      statusAtTime: "Driver",
+      updatedBy: CURRENT_USER.uid,
+      updatedByName: CURRENT_USER.name || CURRENT_USER.email,
+      timestamp: new Date().toISOString()
+    })
+  };
+
+  if (leadData.transferRequestStatus === "Pending") {
+    updateData.transferRequestStatus = "Approved";
+  }
+
+  await leadsRef.doc(leadId).update(updateData);
+
+  if (notificationsRef) {
+    await notificationsRef.add({
+      userId: hrUser.id,
+      title: "New HR Lead Assigned",
+      message: `Lead #${leadData.slNo} (${leadData.fullName}) has been assigned to you for driver handling.`,
+      createdAt: now,
+      read: false
+    });
+  }
+
+  await writeAuditLog(leadId, leadData.slNo, "HR Transfer Assigned", `Assigned to ${hrUser.name || hrUser.email}`, CURRENT_USER.name || CURRENT_USER.email);
+  toast(`Assigned lead to HR ${hrUser.name || hrUser.email}.`, "success");
+  renderHRTransferRequests();
+}
+
+async function approveHRTransfer(leadId) {
+  try {
+    const leadDoc = await leadsRef.doc(leadId).get();
+    if (!leadDoc.exists) return;
+    const leadData = leadDoc.data();
+    await assignLeadToHRDirectly(leadId, leadData, "Approved by Admin", { approved: true });
+    renderHRTransferRequests();
+  } catch (err) {
+    console.error(err);
+    toast(err.message || "Failed to approve HR transfer.", "danger");
+  }
+}
+
+async function rejectHRTransfer(leadId) {
+  const reason = window.prompt("Enter rejection reason for this HR transfer request:");
+  if (!reason) {
+    toast("Rejection reason is required.", "warning");
+    return;
+  }
+
+  const leadDoc = await leadsRef.doc(leadId).get();
+  if (!leadDoc.exists) return;
+  const leadData = leadDoc.data();
+  const previousStatus = leadData.transferRequestPreviousStatus || "Not Open";
+  const now = firebase.firestore.Timestamp.now();
+
+  await leadsRef.doc(leadId).update({
+    status: previousStatus,
+    transferRequestStatus: "Rejected",
+    transferRequestRejectedBy: CURRENT_USER.uid,
+    transferRequestRejectedByName: CURRENT_USER.name || CURRENT_USER.email,
+    transferRequestRejectedAt: now,
+    transferRequestRejectedReason: reason,
+    history: firebase.firestore.FieldValue.arrayUnion({
+      text: `Driver transfer request rejected by ${CURRENT_USER.name || CURRENT_USER.email}. Reason: ${reason}`,
+      statusAtTime: previousStatus,
+      updatedBy: CURRENT_USER.uid,
+      updatedByName: CURRENT_USER.name || CURRENT_USER.email,
+      timestamp: new Date().toISOString()
+    })
+  });
+
+  await writeAuditLog(leadId, leadData.slNo, "HR Transfer Rejected", `Rejected by ${CURRENT_USER.name || CURRENT_USER.email}: ${reason}`, CURRENT_USER.name || CURRENT_USER.email);
+  toast("HR transfer request rejected and lead status restored.", "info");
+  renderHRTransferRequests();
+}
+
+async function notifyAdminsForHRTransfer(lead) {
+  if (!notificationsRef) return;
+  const usersSnap = await usersRef.where("role", "in", ["admin", "superadmin"]).where("active", "==", true).get();
+  const now = firebase.firestore.Timestamp.now();
+  usersSnap.forEach((doc) => {
+    notificationsRef.add({
+      userId: doc.id,
+      title: "Driver Transfer Request",
+      message: `Lead #${lead.slNo} (${lead.fullName}) requires HR transfer approval.`,
+      createdAt: now,
+      read: false
+    });
+  });
+}
+
+async function renderHRTransferRequests() {
+  if (CURRENT_USER.role !== "admin" && CURRENT_USER.role !== "superadmin") return;
+  const section = document.getElementById("view-hrtransfers");
+  if (!section) return;
+
+  const snapshot = await leadsRef.where("transferRequestStatus", "==", "Pending").get();
+  const pending = [];
+  snapshot.forEach((doc) => pending.push({ id: doc.id, ...doc.data() }));
+
+  if (pending.length === 0) {
+    section.innerHTML = `<div class="alert alert-info">No pending HR transfer requests at the moment.</div>`;
+    return;
+  }
+
+  const rows = pending.map((lead) => `
+    <tr>
+      <td>${lead.slNo}</td>
+      <td>${lead.fullName}</td>
+      <td>${lead.phoneNumber || "-"}</td>
+      <td>${lead.assignedToName || "Unassigned"}</td>
+      <td>${lead.transferRequestedByName || "Unknown"}</td>
+      <td>${lead.transferRequestedAt ? new Date(lead.transferRequestedAt.toDate()).toLocaleString() : "-"}</td>
+      <td>${lead.transferRequestNote || "-"}</td>
+      <td class="text-nowrap">
+        <button class="btn btn-sm btn-success me-1" onclick="approveHRTransfer('${lead.id}')">Approve</button>
+        <button class="btn btn-sm btn-danger" onclick="rejectHRTransfer('${lead.id}')">Reject</button>
+      </td>
+    </tr>
+  `).join("");
+
+  section.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <h5 class="card-title mb-0">Pending HR Transfer Requests</h5>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+          <thead>
+            <tr>
+              <th>Sl.No</th>
+              <th>Customer</th>
+              <th>Phone</th>
+              <th>Sales Owner</th>
+              <th>Requested By</th>
+              <th>Requested At</th>
+              <th>Notes</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
 }
 
 // ---------------- CREATE LEAD (Admin / Super Admin) ----------------
@@ -943,6 +1161,12 @@ async function updateLeadStatus(leadId, newStatus, noteText) {
   const finalStatuses = ["Interested", "Not Interested", "No Response", "Job Seeker", "Driver", "Transporter"];
   if (finalStatuses.includes(newStatus) && leadData.hasPendingFollowUp) {
     await cancelPendingFollowUp(leadId, leadData, newStatus);
+  }
+
+  // If an admin/superadmin is moving a lead to Driver, assign to HR directly
+  if (newStatus === "Driver" && CURRENT_USER.role !== "member") {
+    await assignLeadToHRDirectly(leadId, leadData, noteText);
+    return;
   }
 
   // Continue with normal status update logic
@@ -2245,7 +2469,8 @@ if (addLeadForm) {
         campaignId:          campaignInfo ? campaignInfo.campaignId : null,
         campaignName:        campaignInfo ? campaignInfo.campaignName : null,
         campaignData:        campaignInfo ? campaignInfo.campaignData : null,
-        campaignFieldsMeta:  campaignInfo ? campaignInfo.campaignFieldsMeta : null
+        campaignFieldsMeta:  campaignInfo ? campaignInfo.campaignFieldsMeta : null,
+        assignmentRole:      campaignInfo ? campaignInfo.assignmentRole : "member"
       });
       addLeadForm.reset();
       resetAddLeadCampaignUI();
@@ -2287,13 +2512,20 @@ if (statusUpdateForm) {
     const note = document.getElementById("statusNote").value;
     const lead = ALL_LEADS.find(l => l.id === currentStatusLeadId);
     
-    // Check if this is a "Not Interested" status for a Sales Member
-    if (newStatus === "Not Interested" && CURRENT_USER.role === "member") {
+    // Check if this is a "Not Interested" status for non-admin users
+    if (newStatus === "Not Interested" && CURRENT_USER.role !== "admin" && CURRENT_USER.role !== "superadmin") {
       // Intercept and open call audit modal - do NOT change status directly
       handleNotInterestedStatus(currentStatusLeadId, lead);
       return;
     }
-    
+
+    // Sales Members trigger HR transfer requests for Driver status
+    if (newStatus === "Driver" && CURRENT_USER.role === "member") {
+      await createHRTransferRequest(currentStatusLeadId, lead, note);
+      bootstrap.Modal.getInstance(document.getElementById("statusModal")).hide();
+      return;
+    }
+
     try {
       await updateLeadStatus(currentStatusLeadId, newStatus, note);
       bootstrap.Modal.getInstance(document.getElementById("statusModal")).hide();

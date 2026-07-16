@@ -36,6 +36,33 @@ const FIELD_TYPES = [
 ];
 
 const FIELD_TYPES_WITH_OPTIONS = ["dropdown", "radio", "checkbox"];
+const ASSIGNMENT_ROLE_LABELS = {
+  member: "Sales Member",
+  hr: "HR"
+};
+const DEFAULT_ASSIGNMENT_ROLE = "member";
+
+function getAssignableAssignmentRoles() {
+  if (typeof ROLE_LABELS === "undefined") {
+    return ["member", "hr"];
+  }
+  return Object.keys(ROLE_LABELS).filter((role) => role !== "superadmin" && role !== "admin");
+}
+
+function renderCampaignAssignmentRoleOptions(selectedRole) {
+  const select = document.getElementById("campaignDefaultAssignmentRole");
+  if (!select) return;
+
+  const options = [
+    `<option value="">Select role…</option>`,
+    ...getAssignableAssignmentRoles().map((role) => {
+      const label = ROLE_LABELS[role] || role;
+      return `<option value="${role}" ${role === selectedRole ? "selected" : ""}>${escapeHtml(label)}</option>`;
+    })
+  ];
+
+  select.innerHTML = options.join("");
+}
 
 // ── Campaign status model ────────────────────────────────────
 // Backward compatible with existing docs that only have `active` (bool).
@@ -129,6 +156,7 @@ function renderCampaignsView() {
           <tr>
             <th>Campaign</th>
             <th>Status</th>
+            <th>Default Role</th>
             <th>Total Leads</th>
             <th>Created Date</th>
             <th>Last Updated</th>
@@ -189,6 +217,7 @@ function renderCampaignsView() {
               <div class="small text-muted">${fieldCount} custom field${fieldCount === 1 ? "" : "s"}</div>
             </td>
             <td>${CAMPAIGN_STATUS_BADGE[status]}</td>
+            <td>${ASSIGNMENT_ROLE_LABELS[c.defaultAssignmentRole] || ASSIGNMENT_ROLE_LABELS[DEFAULT_ASSIGNMENT_ROLE]}</td>
             <td>${totalLeads}</td>
             <td class="text-nowrap">${created}</td>
             <td class="text-nowrap">${updated}</td>
@@ -216,6 +245,7 @@ function openCampaignModal(campaignId) {
   document.getElementById("campaignId").value = c ? c.id : "";
   document.getElementById("campaignName").value = c ? c.name : "";
   document.getElementById("campaignActive").checked = c ? c.active !== false : true;
+  renderCampaignAssignmentRoleOptions(c ? (c.defaultAssignmentRole || DEFAULT_ASSIGNMENT_ROLE) : DEFAULT_ASSIGNMENT_ROLE);
   new bootstrap.Modal(document.getElementById("campaignModal")).show();
 }
 
@@ -223,18 +253,25 @@ async function saveCampaign() {
   const id = document.getElementById("campaignId").value;
   const name = document.getElementById("campaignName").value.trim();
   const active = document.getElementById("campaignActive").checked;
+  const defaultAssignmentRole = document.getElementById("campaignDefaultAssignmentRole").value;
 
   if (!name) { toast("Campaign name is required.", "warning"); return; }
+  if (!defaultAssignmentRole) { toast("Default Assignment Role is required.", "warning"); return; }
 
   try {
     if (id) {
       await campaignsRef.doc(id).update({
-        name, active, updatedAt: firebase.firestore.Timestamp.now()
+        name,
+        active,
+        defaultAssignmentRole,
+        updatedAt: firebase.firestore.Timestamp.now()
       });
       toast("Campaign updated.", "success");
     } else {
       await campaignsRef.add({
-        name, active,
+        name,
+        active,
+        defaultAssignmentRole,
         createdAt: firebase.firestore.Timestamp.now(),
         updatedAt: firebase.firestore.Timestamp.now(),
         createdBy: CURRENT_USER.uid
@@ -330,6 +367,7 @@ async function cloneCampaign(id) {
       name: trimmedName,
       active: true,
       archived: false,
+      defaultAssignmentRole: c.defaultAssignmentRole || DEFAULT_ASSIGNMENT_ROLE,
       createdAt: now,
       updatedAt: now,
       createdBy: CURRENT_USER.uid,
@@ -722,7 +760,8 @@ function collectCampaignDataFromAddLeadForm() {
     campaignId,
     campaignName: campaign ? campaign.name : "",
     campaignData,
-    campaignFieldsMeta
+    campaignFieldsMeta,
+    assignmentRole: campaign ? (campaign.defaultAssignmentRole || DEFAULT_ASSIGNMENT_ROLE) : DEFAULT_ASSIGNMENT_ROLE
   };
 }
 
