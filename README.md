@@ -1,120 +1,466 @@
-# Abra Logistics — Sales CRM
+# 🚚 ABRA Logistics CRM
 
-A lightweight, role-based CRM for managing raw leads through to conversion, built with HTML/CSS/JS + Bootstrap 5 and Firebase (Auth + Firestore).
+> **Enterprise Lead Management & Sales Automation Platform**
+>
+> A modern, AI-powered CRM built for ABRA Logistics to streamline lead management, automate assignment, improve sales productivity, and manage driver recruitment through an integrated HR workflow.
 
-## 1. Setup
+---
 
-1. Create/open a Firebase project → console.firebase.google.com
-2. **Authentication** → Sign-in method → enable **Email/Password**
-3. **Firestore Database** → Create database (production mode, closest region e.g. `asia-south1` for Bengaluru)
-4. **Project settings → General → Your apps → Web app** → copy the config object
-5. Paste it into `js/firebase-config.js` (replace the placeholder values)
-6. Deploy `firestore.rules` via Firebase Console → Firestore → Rules (paste contents in), or via Firebase CLI: `firebase deploy --only firestore:rules`
-7. **Create the first Super Admin manually** (one-time, since there's no signup form):
-   - Firebase Console → Authentication → Add user → `kothakulasagar2002@gmail.com` + a password
-   - Firebase Console → Firestore → create collection `users` → document ID = that user's UID (copy from Authentication tab) → fields:
-     ```
-     name: "Sagar"
-     email: "kothakulasagar2002@gmail.com"
-     role: "superadmin"
-     active: true
-     createdAt: (timestamp, now)
-     createdBy: "system"
-     ```
-8. Open `index.html` (host on Firebase Hosting, or any static host — GitHub Pages, Netlify, etc.)
+## 📌 Overview
 
-From here on, **all Admins and Members are added from inside the app** (Manage Team, Super Admin only) — no one else can ever sign up.
+ABRA Logistics CRM is a comprehensive internal Customer Relationship Management (CRM) system designed to manage logistics inquiries, freight campaigns, driver recruitment, sales operations, reporting, and workflow automation.
 
-## 2. File structure
+The system uses **Firebase** as its backend, follows a **role-based access control** architecture, and supports **dynamic campaign-to-role assignment**, ensuring scalable and maintainable business operations.
+
+---
+
+# ✨ Key Features
+
+## 👥 Role Based Access
+
+- 🔑 Super Admin
+- 🛠 Admin
+- 💼 Sales Member
+- 👨‍💼 HR
+
+Each role has dedicated permissions and dashboards.
+
+---
+
+## 📞 Lead Management
+
+- Add/Edit/Delete Leads
+- Search & Filter
+- Campaign-wise Leads
+- Assignment History
+- Timeline Tracking
+- Notes
+- Status Management
+- Follow-up Scheduling
+- Pagination
+- Real-time Firebase Sync
+
+---
+
+## ⚡ Intelligent Assignment Engine
+
+The CRM contains a centralized assignment engine.
+
+Supports:
+
+- Round Robin Assignment
+- Office Hours
+- Working Days
+- Holidays
+- Lunch Break
+- Leave Management
+- Pending Assignment
+- Auto Assignment
+- Assignment History
+- Dynamic Campaign Routing
+
+No duplicate assignment logic.
+
+---
+
+# 🎯 Dynamic Campaign Assignment
+
+Every campaign has its own
 
 ```
-abra-sales-crm/
-├── index.html              Login page
-├── forgot-password.html    Self-serve password reset (only for provisioned emails)
-├── dashboard.html           Main app shell (Leads / Follow-ups / Urgent / Manage Team)
-├── firestore.rules          Security rules — enforces the role permission table below
-├── css/style.css
-└── js/
-    ├── firebase-config.js   Your Firebase project keys
-    ├── auth.js              Login, logout, reset password, route guard
-    ├── app.js                Shell: nav rendering, view switching, toasts
-    ├── leads.js              Lead CRUD, round-robin, status/history, reminders
-    └── users.js              Super Admin: add/manage team (secondary-app trick)
+Assignment Role
 ```
 
-## 3. Data model
+Example
 
-**`users/{uid}`**
-`name, email, role (superadmin|admin|member), active (bool), createdBy, createdAt`
+| Campaign | Assignment Role |
+|-----------|-----------------|
+| Freight Services | Sales Member |
+| Driver Recruitment | HR |
 
-**`leads/{leadId}`**
-`slNo (auto), serviceNeeded, email, fullName, phoneNumber, companyName, status, assignedTo (uid), assignedToName, createdBy, createdByName, createdAt, lastContactedAt, nextFollowUpAt, history[] ({text, statusAtTime, updatedBy, updatedByName, timestamp})`
+The assignment engine automatically determines which department receives a lead.
 
-**`meta/leadCounter`** → `{ count }` — powers auto Sl.No
-**`meta/roundRobin`** → `{ lastIndex }` — powers round-robin assignment
+No hardcoded campaign logic.
 
-**`deletedLeadsAudit/{id}`** — snapshot of any lead a Super Admin deletes, kept forever for accountability.
+---
 
-## 4. Role permission summary
+# 👨‍💼 HR Recruitment Workflow
 
-| Action | Super Admin | Admin | Member |
-|---|---|---|---|
-| Manage team (add/role/deactivate) | ✅ | ❌ | ❌ |
-| Add leads | ✅ | ✅ | ❌ |
-| Edit/delete leads | ✅ | ❌ | ❌ |
-| View leads | All | All | Own assigned only |
-| Update status/notes | ✅ | ✅ | ✅ (own only) |
-| Manage Team page | ✅ | ❌ | ❌ |
+Driver Recruitment campaigns are handled directly by HR.
 
-## 5. Status workflow
+Existing logistics leads can be transferred from Sales to HR through an approval workflow.
 
-- **Not Open** (default on creation) → untouched 30 min → toast + Urgent Actions panel (Admin/Super Admin) and a personal nudge toast (Member)
-- **Busy** → resurfaces in the Member's Follow-ups list after 1 hr
-- **Not Picking Call** → resurfaces after 4 hrs
-- **Interested / Not Interested / Job Seeker / Driver / Transporter** → no auto reminder, still fully editable with notes
+Workflow
 
-## 6. Notes on the "secondary app" trick
+```
+Sales Lead
+      ↓
+Status = Driver
+      ↓
+Transfer Request
+      ↓
+Admin Approval
+      ↓
+Assigned to HR
+```
 
-Firebase's client SDK automatically signs you in as whichever user you just created with `createUserWithEmailAndPassword`. To let a Super Admin add a team member without being logged out themselves, `users.js` spins up a temporary second Firebase app instance, creates the account there, then discards that instance. No Cloud Functions or paid (Blaze) plan needed — this works entirely on the free Spark plan.
+Sales still has read-only access after transfer.
 
-## 7. Known limitations / good next steps
+---
 
-- Reminders and toasts only fire while someone has the dashboard open in a browser tab (no server-side push). If you want true push notifications even when the app is closed, that would need Firebase Cloud Messaging + a Cloud Function — a natural v2 addition.
-- Bulk CSV lead upload isn't included yet (you've done this pattern before in the Sales Call CRM — happy to add it here too).
-- No pagination yet on the leads table — fine for hundreds of leads, worth adding if volume grows into the thousands.
+# 📋 HR Transfer Approval
 
-## 8. Campaign Form Builder (new)
+Only
 
-Super Admin can create/edit/delete/activate/deactivate **Campaigns** (e.g. Freight Services,
-Warehousing, Sea Freight) from the new **Campaign Form Builder** sidebar item, and build a
-custom lead-capture form per campaign — no code or JSON files involved, everything is done
-through the CRM UI and stored in Firestore.
+- Super Admin
+- Admin
 
-**Fixed system fields** — Full Name, Mobile Number, Email — always appear on every Add Lead
-form and are never part of the Campaign Form Builder; they can't be edited, reordered, or
-deleted.
+can approve HR transfers.
 
-When an Admin clicks **+ Add Lead**, they first pick a **Campaign Type**. The matching custom
-fields render instantly (no page refresh) below the system fields. Selecting **General / No
-Campaign** falls back to the original Service Needed / Company Name fields for backward
-compatibility with the existing lead workflow.
+Every transfer stores
 
-New Firestore collections:
-- `campaigns/{campaignId}` → `name, active, createdAt, updatedAt, createdBy`
-- `campaignFields/{fieldId}` → `campaignId, fieldLabel, fieldType, required, placeholder, options[], displayOrder, helpText, defaultValue`
+- Requested By
+- Requested Date
+- Approved By
+- Approved Date
+- Assignment History
 
-Leads created through a campaign additionally store:
-- `campaignId`, `campaignName`
-- `campaignData` → `{ fieldId: value }`
-- `campaignFieldsMeta` → a **snapshot** of each field's label/type at the moment the lead was
-  created, so editing or deleting a campaign's fields later never changes how existing leads
-  display their data.
+Complete audit trail maintained.
 
-Editing a campaign's fields only affects **future** leads — existing leads keep the exact
-values (and labels) they were created with. Deleting a campaign removes its field definitions
-but leads already created under it keep their `campaignData` untouched.
+---
 
-Permissions: Super Admin manages campaigns/fields; Admins select a campaign and fill the form
-when adding a lead; Members only ever see the finished lead (via the 👁 View button, which
-opens a clean label/value Lead Details modal — Campaign Type, system fields, campaign details,
-then assignment/status info).
+# 📈 Dashboard
+
+Real-time KPI cards
+
+- Total Leads
+- Interested
+- Busy
+- Not Interested
+- Drivers
+- Transporters
+- Job Seekers
+- Pending
+- Follow Ups
+
+Role-specific dashboards.
+
+---
+
+# 📊 Reports
+
+- Daily Report
+- Campaign Reports
+- WhatsApp Share
+- Copy Report
+- Date Filters
+- Manager Reports
+
+Role-aware reporting.
+
+---
+
+# ☎ Call Audit
+
+Mandatory only for Sales.
+
+Sales
+
+```
+Not Interested
+```
+
+↓
+
+Recording Required
+
+HR
+
+```
+Not Interested
+```
+
+↓
+
+Recording Optional
+
+---
+
+# 🗓 Leave Management
+
+Supports
+
+- Full Day Leave
+- Half Day Leave
+- Emergency Leave
+
+Assignment engine automatically skips unavailable users.
+
+---
+
+# 🏢 Campaign Management
+
+Create unlimited campaigns.
+
+Each campaign contains
+
+- Name
+- Status
+- Custom Fields
+- Assignment Role
+
+Campaign routing is fully configurable.
+
+---
+
+# 🎓 Sales Academy
+
+Integrated learning system
+
+- Training
+- Assessments
+- Certificates
+- Knowledge Base
+
+---
+
+# 🤖 AI Powered
+
+AI features include
+
+- Sales Guidance
+- Prompt Generation
+- Training Assistance
+- Report Assistance
+
+---
+
+# 🔐 Security
+
+Role Based Access Control (RBAC)
+
+Permissions managed through
+
+- Super Admin
+- Admin
+- Sales
+- HR
+
+No unauthorized access.
+
+---
+
+# ⚙ CRM Settings
+
+Manage
+
+- Office Hours
+- Holidays
+- Working Days
+- Reminder Times
+- Assignment Settings
+- Campaign Routing
+
+---
+
+# 🗄 Technology Stack
+
+## Frontend
+
+- HTML5
+- CSS3
+- Bootstrap
+- Vanilla JavaScript
+
+## Backend
+
+- Firebase Authentication
+- Firestore Database
+
+## Cloud
+
+- Firebase Hosting
+
+## APIs
+
+- Firebase SDK
+- EmailJS
+- WhatsApp Integration
+
+---
+
+# 🏗 Architecture
+
+```
+                Firebase
+                    │
+      ┌─────────────┴─────────────┐
+      │                           │
+ Authentication              Firestore
+      │                           │
+      └─────────────┬─────────────┘
+                    │
+              Business Logic
+                    │
+    ┌───────────────┼────────────────┐
+    │               │                │
+ Assignment     Reports         Dashboard
+    │               │                │
+ Campaigns      Leads         Notifications
+```
+
+---
+
+# 📂 Project Structure
+
+```
+/
+│
+├── css/
+├── js/
+│   ├── app.js
+│   ├── assignment.js
+│   ├── campaigns.js
+│   ├── leads.js
+│   ├── reports.js
+│   ├── dashboard.js
+│   ├── call-audit.js
+│   ├── leave-management.js
+│   ├── crm-settings.js
+│   ├── notifications.js
+│   └── firebase-config.js
+│
+├── assets/
+├── images/
+├── dashboard.html
+└── README.md
+```
+
+---
+
+# 🔄 Lead Lifecycle
+
+```
+Meta Lead
+      │
+      ▼
+Campaign Selected
+      │
+      ▼
+Assignment Engine
+      │
+      ▼
+Sales / HR
+      │
+      ▼
+Status Updates
+      │
+      ▼
+Reports
+```
+
+---
+
+# 🔁 Assignment Flow
+
+```
+Lead Created
+      │
+      ▼
+Campaign Assignment Role
+      │
+      ▼
+Office Hours
+      │
+      ▼
+Leave Check
+      │
+      ▼
+Holiday Check
+      │
+      ▼
+Round Robin
+      │
+      ▼
+Assigned User
+```
+
+---
+
+# 📱 Responsive
+
+Fully responsive
+
+- Desktop
+- Tablet
+- Mobile
+
+---
+
+# 🚀 Performance
+
+✔ Real-time Firestore
+
+✔ Optimized Queries
+
+✔ Reusable Assignment Engine
+
+✔ Dynamic Routing
+
+✔ Modular Architecture
+
+✔ Enterprise Ready
+
+---
+
+# 🛣 Roadmap
+
+- Voice Calling
+- AI Call Analysis
+- WhatsApp API Automation
+- Google Calendar Sync
+- Google Meet Integration
+- HR Interview Scheduling
+- Resume Upload
+- Driver Document Verification
+- Analytics Dashboard
+- Mobile App
+
+---
+
+# 👨‍💻 Developed For
+
+**ABRA Logistics**
+
+Enterprise Lead & Recruitment Management Platform
+
+---
+
+# 📄 License
+
+Internal Enterprise Software
+
+Developed exclusively for **ABRA Logistics**.
+
+Unauthorized distribution or commercial resale is prohibited.
+
+---
+
+# ❤️ Built With
+
+- JavaScript
+- Firebase
+- HTML5
+- CSS3
+- Bootstrap
+- ❤️ for ABRA Logistics
+
+---
+
+## ⭐ Version
+
+**Version:** 2.0 Enterprise Edition
+
+**Status:** Production Ready
+
+**Last Updated:** July 2026
