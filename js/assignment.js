@@ -352,3 +352,9 @@ function startAssignmentWatcher() {
   // Run immediately on load too
   dispatchPendingLeads();
 }
+
+// Export functions for use by other modules
+window.getNextAvailableUserByRole = getNextAvailableUserByRole;
+window.writeAuditLog = writeAuditLog;
+window.isValidAssignmentTime = isValidAssignmentTime;
+window.getTodayLeaves = getTodayLeaves;

@@ -63,6 +63,7 @@
   const trainingsRef = firestoreAvailable ? db.collection("trainings") : null;
   const trainingProgressRef = firestoreAvailable ? db.collection("trainingProgress") : null;
   const certificatesRef = firestoreAvailable ? db.collection("certificates") : null;
+  const knowledgeBaseRef = firestoreAvailable ? db.collection("knowledgeBase") : null;
   const quizzesRef = firestoreAvailable ? db.collection("quizzes") : null;
 
   // Export all references globally
@@ -78,6 +79,7 @@
   window.trainingsRef = trainingsRef;
   window.trainingProgressRef = trainingProgressRef;
   window.certificatesRef = certificatesRef;
+  window.knowledgeBaseRef = knowledgeBaseRef;
   window.quizzesRef = quizzesRef;
 
   // Utility functions for checking service availability

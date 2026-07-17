@@ -347,6 +347,7 @@ async function loadLeadsPage(page, direction = "next") {
     snapshot.forEach((doc) => {
       ALL_LEADS.push({ id: doc.id, ...doc.data() });
     });
+    window.ALL_LEADS = ALL_LEADS; // Keep window reference updated
     
     // Store cursors
     if (snapshot.docs.length > 0) {
@@ -501,6 +502,7 @@ async function updateTotalCount() {
  */
 function processCachedPage(cached) {
   ALL_LEADS = cached.leads;
+  window.ALL_LEADS = ALL_LEADS; // Keep window reference updated
   PAGINATION_STATE.firstVisible = cached.firstVisible;
   PAGINATION_STATE.lastVisible = cached.lastVisible;
   PAGINATION_STATE.hasNextPage = cached.hasNextPage;
@@ -548,6 +550,7 @@ async function refreshActiveMembers() {
   ACTIVE_MEMBERS = [];
   snap.forEach((doc) => ACTIVE_MEMBERS.push({ id: doc.id, ...doc.data() }));
   ACTIVE_MEMBERS.sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
+  window.ACTIVE_MEMBERS = ACTIVE_MEMBERS; // Keep window reference updated
 }
 
 async function refreshActiveHR() {
@@ -555,6 +558,7 @@ async function refreshActiveHR() {
   ACTIVE_HR = [];
   snap.forEach((doc) => ACTIVE_HR.push({ id: doc.id, ...doc.data() }));
   ACTIVE_HR.sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
+  window.ACTIVE_HR = ACTIVE_HR; // Keep window reference updated
 }
 
 async function createHRTransferRequest(leadId, leadData, noteText) {
@@ -1251,6 +1255,19 @@ async function updateLeadStatus(leadId, newStatus, noteText) {
   };
 
   await leadRef.update(updateData);
+
+  // ✅ HR TRANSFER: Automatically create transfer request for Driver status
+  if (finalStatus === "Driver" && !leadData.hrTransferCreated) {
+    // Only create transfer if function is available (hr-transfers.js loaded)
+    if (typeof createHRTransferOnDriverStatus === "function") {
+      try {
+        await createHRTransferOnDriverStatus(leadId, { ...leadData, ...updateData });
+      } catch (error) {
+        console.error("Failed to create HR transfer:", error);
+        // Don't block status update if transfer creation fails
+      }
+    }
+  }
 
   // Log to console for debugging
   if (newStatus === "Not Picking Call") {
@@ -2605,3 +2622,12 @@ function escapeHtml(str) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 }
+
+// Export functions to window for use by other modules
+window.loadLeadsView = loadLeadsView;
+window.renderHRTransferRequests = renderHRTransferRequests;
+
+// Export global variables for use by other modules
+window.ALL_LEADS = ALL_LEADS;
+window.ACTIVE_MEMBERS = ACTIVE_MEMBERS;
+window.ACTIVE_HR = ACTIVE_HR;

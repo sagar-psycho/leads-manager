@@ -101,9 +101,6 @@ function buildNav() {
     <a href="#" class="nav-link nav-item-link" data-view="callaudit">
       <i class="bi bi-clipboard-check"></i> Call Audit
     </a>
-    <a href="#" class="nav-link nav-item-link" data-view="hrtransfers">
-      <i class="bi bi-arrow-right-square"></i> HR Transfers
-    </a>
     <a href="#" class="nav-link nav-item-link" data-view="report">
       <i class="bi bi-file-earmark-text"></i> Daily Report
     </a>`;
@@ -113,7 +110,17 @@ function buildNav() {
   html += `
     <a href="#" class="nav-link nav-item-link" data-view="leave">
       <i class="bi bi-calendar2-check"></i> Leave Management
-    </a>
+    </a>`;
+  
+  // HR Transfers — Admin and Super Admin only
+  if (!isMember) {
+    html += `
+    <a href="#" class="nav-link nav-item-link" data-view="hrtransfers">
+      <i class="bi bi-arrow-left-right"></i> HR Transfers
+    </a>`;
+  }
+  
+  html += `
     <a href="#" class="nav-link nav-item-link" data-view="training">
       <i class="bi bi-mortarboard-fill"></i> Sales Academy
       ${isMember ? '<span id="trainingProgressBadge" class="badge bg-info ms-auto d-none"></span>' : ''}
@@ -192,11 +199,11 @@ function showView(viewName) {
   if (viewName === "aisettings")  renderAISettingsView();
   if (viewName === "crmsettings") renderCRMSettingsView();
   if (viewName === "leave")       loadLeaveView();
+  if (viewName === "hrtransfers") loadHRTransfersView();
   if (viewName === "dashboard")   renderDashboardCards();
   if (viewName === "auditlog")    renderAuditLog();
   if (viewName === "callaudit")   renderCallAuditDashboard();
   if (viewName === "campaigns")   renderCampaignsView();
-  if (viewName === "hrtransfers") renderHRTransferRequests();
   if (viewName === "campaignreports") renderCampaignReportsPanel();
   if (viewName === "training") {
     if (typeof loadTrainingView === "function") {

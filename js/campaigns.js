@@ -99,6 +99,7 @@ function subscribeCampaigns() {
   campaignsRef.orderBy("createdAt", "asc").onSnapshot((snap) => {
     ALL_CAMPAIGNS = [];
     snap.forEach((d) => ALL_CAMPAIGNS.push({ id: d.id, ...d.data() }));
+    window.ALL_CAMPAIGNS = ALL_CAMPAIGNS; // Export to window for other modules
 
     const view = document.getElementById("view-campaigns");
     if (view && !view.classList.contains("d-none")) renderCampaignsView();
