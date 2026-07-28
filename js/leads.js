@@ -1656,7 +1656,7 @@ function renderLeadsTable() {
     const displayName = fullName.length > 25 ? fullName.substring(0, 22) + '...' : fullName;
     const nameTitle = fullName.length > 25 ? fullName : '';
     const isNewBadge = isLeadNew(l)
-      ? '<span class="badge bg-success ms-2 rounded-pill px-2 py-1 small fw-bold">NEW</span>'
+      ? '<span class="lead-new-badge">NEW</span>'
       : '';
     
     // Truncate campaign name
@@ -2267,7 +2267,7 @@ function _renderUrgentStaff(container) {
         </div>
 
         <div class="urgent-card-info">
-          <div class="urgent-name">${escapeHtml(l.fullName)}${isLeadNew(l) ? ' <span class="badge bg-success ms-2 rounded-pill px-2 py-1 small fw-bold">NEW</span>' : ''}</div>
+          <div class="urgent-name">${escapeHtml(l.fullName)}${isLeadNew(l) ? ' <span class="lead-new-badge">NEW</span>' : ''}</div>
           <div class="urgent-company">${escapeHtml(l.companyName || "—")}</div>
           ${l.hasPendingFollowUp && l.followUp ? `
           <div class="followup-timeline-details mt-2">
@@ -2359,7 +2359,7 @@ function _renderUrgentMember(container) {
         </div>
 
         <div class="urgent-card-info">
-          <div class="urgent-name">${escapeHtml(l.fullName)}${isLeadNew(l) ? ' <span class="badge bg-success ms-2 rounded-pill px-2 py-1 small fw-bold">NEW</span>' : ''}</div>
+          <div class="urgent-name">${escapeHtml(l.fullName)}${isLeadNew(l) ? ' <span class="lead-new-badge">NEW</span>' : ''}</div>
           <div class="urgent-company">${escapeHtml(l.companyName || "—")}</div>
           ${l.hasPendingFollowUp && l.followUp ? `
           <div class="followup-timeline-details mt-2">
@@ -2426,7 +2426,7 @@ function renderMyFollowUps() {
     return `
     <div class="followup-card ${due ? "followup-due" : ""}">
       <div>
-        <strong>${escapeHtml(l.fullName)}${isLeadNew(l) ? ' <span class="badge bg-success ms-2 rounded-pill px-2 py-1 small fw-bold">NEW</span>' : ''}</strong> · ${escapeHtml(l.phoneNumber)}
+        <strong>${escapeHtml(l.fullName)}${isLeadNew(l) ? ' <span class="lead-new-badge">NEW</span>' : ''}</strong> · ${escapeHtml(l.phoneNumber)}
         <div class="small text-muted">Status: ${l.status} · Sl.No ${l.slNo}</div>
       </div>
       <div class="text-end">
