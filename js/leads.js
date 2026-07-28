@@ -189,6 +189,7 @@ let ALL_LEADS = [];       // current page leads only (not full dataset)
 let ACTIVE_MEMBERS = [];  // cached active sales member list for dropdowns
 let ACTIVE_HR = [];       // cached active HR list for dropdowns
 let toastedLeadIds = new Set(); // session-only, avoid repeat toast spam
+let leadBadgeRefreshTimer = null;
 
 // Pagination state
 const PAGINATION_STATE = {
@@ -218,6 +219,45 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 // Detach function for current snapshot listener
 let currentLeadsListener = null;
+
+function isLeadNew(lead) {
+  if (!lead?.createdAt) return false;
+
+  const created = lead.createdAt.toDate
+    ? lead.createdAt.toDate()
+    : new Date(lead.createdAt);
+
+  if (!(created instanceof Date) || Number.isNaN(created.getTime())) {
+    return false;
+  }
+
+  const hours = (Date.now() - created.getTime()) / 3600000;
+  return hours < 24;
+}
+
+function scheduleLeadBadgeRefresh() {
+  if (leadBadgeRefreshTimer) {
+    clearTimeout(leadBadgeRefreshTimer);
+    leadBadgeRefreshTimer = null;
+  }
+
+  const upcomingExpiry = ALL_LEADS
+    .filter((lead) => isLeadNew(lead))
+    .map((lead) => {
+      const created = lead.createdAt?.toDate
+        ? lead.createdAt.toDate()
+        : new Date(lead.createdAt);
+      return created.getTime() + 24 * 60 * 60 * 1000;
+    })
+    .sort((a, b) => a - b)[0];
+
+  if (!upcomingExpiry) return;
+
+  const delay = Math.max(1000, upcomingExpiry - Date.now());
+  leadBadgeRefreshTimer = setTimeout(() => {
+    refreshLeadDependentViews();
+  }, delay);
+}
 
 // ============================================================
 // PAGINATION HELPERS
@@ -291,6 +331,31 @@ function debounce(func, wait) {
 }
 
 // ---------------- LOAD / SUBSCRIBE ----------------
+function refreshLeadDependentViews() {
+  renderLeadsTable();
+  updatePaginationUI();
+  renderUrgentActions();
+  renderMyFollowUps();
+  checkReminders();
+  scheduleLeadBadgeRefresh();
+
+  if (typeof renderDashboardCards === "function") {
+    renderDashboardCards();
+  }
+
+  if (typeof refreshCampaignAnalyticsIfVisible === "function") {
+    refreshCampaignAnalyticsIfVisible();
+  }
+
+  if (typeof renderDailyReport === "function") {
+    renderDailyReport();
+  }
+
+  if (typeof refreshNotifications === "function") {
+    refreshNotifications();
+  }
+}
+
 async function loadLeadsView() {
   await refreshActiveMembers();
   await refreshActiveHR();
@@ -303,29 +368,28 @@ async function loadLeadsView() {
 }
 
 /**
- * Load leads for specific page with Firestore pagination
+ * Load leads for specific page with a real-time Firestore listener.
+ * The listener stays active until filters or pagination change.
  */
 async function loadLeadsPage(page, direction = "next") {
-  if (PAGINATION_STATE.isLoading) return;
-  
+  if (PAGINATION_STATE.isLoading && PAGINATION_STATE.currentPage === page) return;
+
   PAGINATION_STATE.isLoading = true;
   PAGINATION_STATE.currentPage = page;
-  
+
+  // Stop any existing listener before attaching a new one.
+  if (currentLeadsListener) {
+    currentLeadsListener();
+    currentLeadsListener = null;
+  }
+
   // Show loading state
   renderLoadingState();
-  
+
   try {
-    // Check cache first
-    const cached = getCachedPage(page, PAGINATION_STATE.currentFilters);
-    if (cached) {
-      console.log(`Loading page ${page} from cache`);
-      processCachedPage(cached);
-      return;
-    }
-    
     // Build Firestore query with filters
     let query = buildFirestoreQuery();
-    
+
     // Apply pagination cursors
     if (page > 1 && direction === "next" && PAGINATION_STATE.lastVisible) {
       query = query.startAfter(PAGINATION_STATE.lastVisible);
@@ -333,71 +397,56 @@ async function loadLeadsPage(page, direction = "next") {
       // For previous page, we need to query in reverse and flip results
       query = query.endBefore(PAGINATION_STATE.firstVisible).limitToLast(PAGINATION_STATE.pageSize);
     }
-    
+
     // Add limit
     if (direction !== "prev") {
       query = query.limit(PAGINATION_STATE.pageSize);
     }
-    
-    // Execute query
-    const snapshot = await query.get();
-    
-    // Process results
-    ALL_LEADS = [];
-    snapshot.forEach((doc) => {
-      ALL_LEADS.push({ id: doc.id, ...doc.data() });
+
+    currentLeadsListener = query.onSnapshot(async (snapshot) => {
+      const docs = snapshot.docs || [];
+
+      ALL_LEADS = docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      window.ALL_LEADS = ALL_LEADS;
+
+      if (docs.length > 0) {
+        PAGINATION_STATE.firstVisible = docs[0];
+        PAGINATION_STATE.lastVisible = docs[docs.length - 1];
+
+        PAGINATION_STATE.cursors[page] = {
+          first: docs[0],
+          last: docs[docs.length - 1]
+        };
+      } else {
+        PAGINATION_STATE.firstVisible = null;
+        PAGINATION_STATE.lastVisible = null;
+      }
+
+      PAGINATION_STATE.hasPrevPage = page > 1;
+
+      const changedTypes = snapshot.docChanges().map((change) => change.type);
+      if (PAGINATION_STATE.totalLeads === 0 || changedTypes.some((type) => type === "added" || type === "removed")) {
+        await updateTotalCount();
+      }
+
+      PAGINATION_STATE.totalPages = Math.max(1, Math.ceil(PAGINATION_STATE.totalLeads / PAGINATION_STATE.pageSize));
+      PAGINATION_STATE.hasNextPage = page < PAGINATION_STATE.totalPages;
+
+      if (PAGINATION_STATE.currentPage === page) {
+        refreshLeadDependentViews();
+      }
+
+      PAGINATION_STATE.isLoading = false;
+    }, (error) => {
+      console.error("Error listening to leads updates:", error);
+      PAGINATION_STATE.isLoading = false;
+      renderErrorState(error);
     });
-    window.ALL_LEADS = ALL_LEADS; // Keep window reference updated
-    
-    // Store cursors
-    if (snapshot.docs.length > 0) {
-      PAGINATION_STATE.firstVisible = snapshot.docs[0];
-      PAGINATION_STATE.lastVisible = snapshot.docs[snapshot.docs.length - 1];
-      
-      // Store cursor for this page
-      PAGINATION_STATE.cursors[page] = {
-        first: snapshot.docs[0],
-        last: snapshot.docs[snapshot.docs.length - 1]
-      };
-    }
-    
-    // Check if there's a next page
-    const nextQuery = query.startAfter(PAGINATION_STATE.lastVisible).limit(1);
-    const nextSnapshot = await nextQuery.get();
-    PAGINATION_STATE.hasNextPage = !nextSnapshot.empty;
-    PAGINATION_STATE.hasPrevPage = page > 1;
-    
-    // Get total count (expensive, only on first load or filter change)
-    if (page === 1 || PAGINATION_STATE.totalLeads === 0) {
-      await updateTotalCount();
-    }
-    
-    // Calculate total pages
-    PAGINATION_STATE.totalPages = Math.ceil(PAGINATION_STATE.totalLeads / PAGINATION_STATE.pageSize);
-    
-    // Cache this page
-    cachePage(page, PAGINATION_STATE.currentFilters, {
-      leads: ALL_LEADS,
-      firstVisible: PAGINATION_STATE.firstVisible,
-      lastVisible: PAGINATION_STATE.lastVisible,
-      hasNextPage: PAGINATION_STATE.hasNextPage,
-      hasPrevPage: PAGINATION_STATE.hasPrevPage
-    });
-    
-    // Render
-    renderLeadsTable();
-    updatePaginationUI();
-    checkReminders();
-    
-    if (typeof refreshCampaignAnalyticsIfVisible === "function") {
-      refreshCampaignAnalyticsIfVisible();
-    }
-    
+
   } catch (error) {
     console.error("Error loading leads page:", error);
-    renderErrorState(error);
-  } finally {
     PAGINATION_STATE.isLoading = false;
+    renderErrorState(error);
   }
 }
 
@@ -1606,6 +1655,9 @@ function renderLeadsTable() {
     const fullName = escapeHtml(l.fullName);
     const displayName = fullName.length > 25 ? fullName.substring(0, 22) + '...' : fullName;
     const nameTitle = fullName.length > 25 ? fullName : '';
+    const isNewBadge = isLeadNew(l)
+      ? '<span class="badge bg-success ms-2 rounded-pill px-2 py-1 small fw-bold">NEW</span>'
+      : '';
     
     // Truncate campaign name
     const campaignName = escapeHtml(l.campaignName || l.serviceNeeded || "General");
@@ -1636,7 +1688,7 @@ function renderLeadsTable() {
       <td class="text-nowrap small">${formatDateTime(created)}</td>
       <td>
         <div class="customer-cell" ${nameTitle ? `title="${nameTitle}"` : ''}>
-          <div class="fw-semibold">${displayName}</div>
+          <div class="fw-semibold">${displayName}${isNewBadge}</div>
           ${l.companyName ? `<div class="small text-muted text-truncate">${escapeHtml(l.companyName).substring(0, 30)}</div>` : ''}
         </div>
       </td>
@@ -2215,7 +2267,7 @@ function _renderUrgentStaff(container) {
         </div>
 
         <div class="urgent-card-info">
-          <div class="urgent-name">${escapeHtml(l.fullName)}</div>
+          <div class="urgent-name">${escapeHtml(l.fullName)}${isLeadNew(l) ? ' <span class="badge bg-success ms-2 rounded-pill px-2 py-1 small fw-bold">NEW</span>' : ''}</div>
           <div class="urgent-company">${escapeHtml(l.companyName || "—")}</div>
           ${l.hasPendingFollowUp && l.followUp ? `
           <div class="followup-timeline-details mt-2">
@@ -2307,7 +2359,7 @@ function _renderUrgentMember(container) {
         </div>
 
         <div class="urgent-card-info">
-          <div class="urgent-name">${escapeHtml(l.fullName)}</div>
+          <div class="urgent-name">${escapeHtml(l.fullName)}${isLeadNew(l) ? ' <span class="badge bg-success ms-2 rounded-pill px-2 py-1 small fw-bold">NEW</span>' : ''}</div>
           <div class="urgent-company">${escapeHtml(l.companyName || "—")}</div>
           ${l.hasPendingFollowUp && l.followUp ? `
           <div class="followup-timeline-details mt-2">
@@ -2374,7 +2426,7 @@ function renderMyFollowUps() {
     return `
     <div class="followup-card ${due ? "followup-due" : ""}">
       <div>
-        <strong>${escapeHtml(l.fullName)}</strong> · ${escapeHtml(l.phoneNumber)}
+        <strong>${escapeHtml(l.fullName)}${isLeadNew(l) ? ' <span class="badge bg-success ms-2 rounded-pill px-2 py-1 small fw-bold">NEW</span>' : ''}</strong> · ${escapeHtml(l.phoneNumber)}
         <div class="small text-muted">Status: ${l.status} · Sl.No ${l.slNo}</div>
       </div>
       <div class="text-end">
