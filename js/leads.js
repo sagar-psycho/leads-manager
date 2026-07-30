@@ -371,6 +371,53 @@ async function loadLeadsView() {
  * Load leads for specific page with a real-time Firestore listener.
  * The listener stays active until filters or pagination change.
  */
+async function migratePendingAssignmentLeadState() {
+  if (!leadsRef) return;
+
+  const snapshot = await leadsRef.get();
+  if (!snapshot || snapshot.empty) return;
+
+  const batch = db.batch();
+  let batchCount = 0;
+  const MAX_BATCH_SIZE = 500;
+
+  for (const doc of snapshot.docs) {
+    const lead = doc.data();
+    const isPendingAssignment = !!(
+      lead.assignmentPending ||
+      lead.assignedTo === "Pending" ||
+      lead.assignedTo === null ||
+      lead.assignedTo === "" ||
+      lead.assignedMemberId === null ||
+      lead.assignedMember === null
+    );
+
+    const state = typeof recalculateLeadState === "function" ? recalculateLeadState(lead) : lead;
+    const corrected = {
+      overdue: state.overdue || false,
+      isOverdue: state.isOverdue || false,
+      reminderSent: state.reminderSent || false,
+      dueTime: state.dueTime || null,
+      nextReminder: state.nextReminder || null
+    };
+
+    const needsUpdate = lead.overdue !== corrected.overdue || lead.isOverdue !== corrected.isOverdue || lead.reminderSent !== corrected.reminderSent || lead.dueTime !== corrected.dueTime || lead.nextReminder !== corrected.nextReminder;
+    if (!needsUpdate) continue;
+
+    batch.update(doc.ref, corrected);
+    batchCount++;
+
+    if (batchCount >= MAX_BATCH_SIZE) {
+      await batch.commit();
+      batchCount = 0;
+    }
+  }
+
+  if (batchCount > 0) {
+    await batch.commit();
+  }
+}
+
 async function loadLeadsPage(page, direction = "next") {
   if (PAGINATION_STATE.isLoading && PAGINATION_STATE.currentPage === page) return;
 
@@ -406,7 +453,10 @@ async function loadLeadsPage(page, direction = "next") {
     currentLeadsListener = query.onSnapshot(async (snapshot) => {
       const docs = snapshot.docs || [];
 
-      ALL_LEADS = docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      ALL_LEADS = docs.map((doc) => {
+        const lead = { id: doc.id, ...doc.data() };
+        return typeof recalculateLeadState === "function" ? recalculateLeadState(lead) : lead;
+      });
       window.ALL_LEADS = ALL_LEADS;
 
       if (docs.length > 0) {
@@ -2092,9 +2142,8 @@ async function loadUserTablePreferences() {
 }
 
 function isUncontactedOverdue(lead) {
-  // Kept for backwards compatibility (row highlighting in leads table).
-  // Delegates to the new overdueMinutes helper.
-  return overdueMinutes(lead) > 0;
+  const state = typeof recalculateLeadState === "function" ? recalculateLeadState(lead) : lead;
+  return !!state.isOverdue;
 }
 
 function isFollowUpDue(lead) {
@@ -2146,44 +2195,12 @@ async function cancelPendingFollowUp(leadId, leadData, newStatus) {
  *   (c) hasPendingFollowUp and scheduledTimestamp has passed (new follow-up system)
  */
 function overdueMinutes(lead) {
-  const now = Date.now();
-  let maxOverdue = 0;
+  const state = typeof recalculateLeadState === "function" ? recalculateLeadState(lead) : lead;
+  if (!state.isOverdue || !state.dueTime) return 0;
 
-  // Read live from CRM Settings (falls back to module constant if settings not yet loaded)
-  const alertMin = (typeof getCRMSetting === "function"
-    ? getCRMSetting("leadRules.uncontactedAlertMinutes")
-    : null) || UNCONTACTED_ALERT_MINUTES;
-
-  // Rule (a): uncontacted "Not Open" lead
-  if (lead.status === "Not Open" && lead.createdAt) {
-    const ageMin = (now - lead.createdAt.toMillis()) / 60000;
-    if (ageMin >= alertMin) {
-      maxOverdue = Math.max(maxOverdue, Math.floor(ageMin - alertMin));
-    }
-  }
-
-  // Rule (b): missed follow-up reminder (legacy)
-  if (lead.nextFollowUpAt) {
-    const passedMin = (now - lead.nextFollowUpAt.toMillis()) / 60000;
-    if (passedMin > 0) {
-      maxOverdue = Math.max(maxOverdue, Math.floor(passedMin));
-    }
-  }
-  
-  // Rule (c): NEW - pending follow-up overdue
-  if (lead.hasPendingFollowUp && lead.followUp && lead.followUp.status === "Pending") {
-    if (lead.followUp.scheduledTimestamp) {
-      const followUpTime = lead.followUp.scheduledTimestamp.toMillis ? 
-        lead.followUp.scheduledTimestamp.toMillis() : 
-        new Date(lead.followUp.scheduledDate + "T" + lead.followUp.scheduledTime).getTime();
-      const passedMin = (now - followUpTime) / 60000;
-      if (passedMin > 0) {
-        maxOverdue = Math.max(maxOverdue, Math.floor(passedMin));
-      }
-    }
-  }
-
-  return maxOverdue;
+  const dueTimeMs = state.dueTime.toMillis ? state.dueTime.toMillis() : new Date(state.dueTime).getTime();
+  const overdueMin = Math.max(0, Math.floor((Date.now() - dueTimeMs) / 60000));
+  return overdueMin;
 }
 
 /** True when the lead has any urgency (used for row highlighting etc.) */

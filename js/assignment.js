@@ -116,6 +116,76 @@ function isMemberAvailableNow(memberId, todayLeaves) {
   return isUserAvailableNow(memberId, todayLeaves);
 }
 
+function isAssignedLead(lead) {
+  const assignedTo = lead?.assignedTo;
+  return !!(assignedTo && assignedTo !== "Pending" && assignedTo !== "" && assignedTo !== null);
+}
+
+function getLeadTimestampValue(value) {
+  if (!value) return null;
+  if (typeof value.toMillis === "function") return value.toMillis();
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number") return value;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
+}
+
+function getLeadReminders(lead) {
+  const now = Date.now();
+  const reminderDelayMs = (getCRMSetting("reminderAfterMinutes") || 30) * 60 * 1000;
+  const assignedAtMs = getLeadTimestampValue(lead?.assignedAt || lead?.createdAt);
+  const dueTimeMs = getLeadTimestampValue(lead?.dueTime);
+  const nextReminderMs = getLeadTimestampValue(lead?.nextReminder);
+
+  if (!assignedAtMs) return { dueTimeMs: null, nextReminderMs: null };
+
+  const fallbackDueTime = assignedAtMs + reminderDelayMs;
+  const fallbackNextReminder = assignedAtMs + reminderDelayMs;
+
+  return {
+    dueTimeMs: dueTimeMs || fallbackDueTime,
+    nextReminderMs: nextReminderMs || fallbackNextReminder
+  };
+}
+
+function recalculateLeadState(lead) {
+  const nextState = {
+    ...lead,
+    overdue: false,
+    isOverdue: false,
+    reminderSent: false,
+    dueTime: null,
+    nextReminder: null
+  };
+
+  const isPendingAssignment = !!(lead?.assignmentPending || lead?.assignedTo === "Pending" || lead?.assignedTo === null || lead?.assignedTo === "" || lead?.assignedMemberId === null || lead?.assignedMember === null);
+
+  if (isPendingAssignment) {
+    return nextState;
+  }
+
+  const officeOpen = typeof isOfficeHoursNow === "function" ? isOfficeHoursNow() : true;
+  const isAssigned = isAssignedLead(lead);
+  const { dueTimeMs, nextReminderMs } = getLeadReminders(lead);
+
+  if (!officeOpen || !isAssigned || !dueTimeMs) {
+    return nextState;
+  }
+
+  const now = Date.now();
+  const isOverdue = officeOpen && isAssigned && lead.status === "Not Open" && now > dueTimeMs;
+  const reminderSent = !!(lead.reminderSent || (nextReminderMs && now >= nextReminderMs));
+
+  return {
+    ...nextState,
+    dueTime: dueTimeMs ? (lead?.dueTime ? lead.dueTime : firebase.firestore.Timestamp.fromDate(new Date(dueTimeMs))) : null,
+    nextReminder: nextReminderMs ? (lead?.nextReminder ? lead.nextReminder : firebase.firestore.Timestamp.fromDate(new Date(nextReminderMs))) : null,
+    reminderSent,
+    isOverdue,
+    overdue: isOverdue
+  };
+}
+
 async function getNextAvailableUserByRole(role, todayLeaves) {
   if (role === "hr") {
     await refreshActiveHR();
@@ -194,6 +264,12 @@ async function smartCreateLead(formData) {
       nextFollowUpAt:  null,
       consecutiveNotPickingAttempts: 0,  // Track consecutive "Not Picking Call" attempts
       assignmentRole: assignmentRole,
+      assignmentPending: false,
+      overdue: false,
+      isOverdue: false,
+      reminderSent: false,
+      dueTime: null,
+      nextReminder: null,
       // Campaign Form Builder — null/"" when the legacy "General / No Campaign" path is used
       campaignId:         formData.campaignId || null,
       campaignName:        formData.campaignName || null,
@@ -211,6 +287,11 @@ async function smartCreateLead(formData) {
         assignedBy:          "System Auto Assignment",
         assignmentPending:   false,
         assignmentReason:    null,
+        overdue:             false,
+        isOverdue:           false,
+        reminderSent:       false,
+        dueTime:             firebase.firestore.Timestamp.fromDate(new Date(Date.now() + (getCRMSetting("reminderAfterMinutes") || 30) * 60 * 1000)),
+        nextReminder:        firebase.firestore.Timestamp.fromDate(new Date(Date.now() + (getCRMSetting("reminderAfterMinutes") || 30) * 60 * 1000)),
         history: [{
           text: `Lead created and auto-assigned to ${assignedMember.name || assignedMember.email}`,
           statusAtTime: "Not Open",
@@ -239,6 +320,11 @@ async function smartCreateLead(formData) {
         assignedBy:        null,
         assignmentPending: true,
         assignmentReason:  reason,
+        overdue:           false,
+        isOverdue:         false,
+        reminderSent:     false,
+        dueTime:           null,
+        nextReminder:      null,
         history: [{
           text: `Lead created — pending assignment (${reason})`,
           statusAtTime: "Not Open",
@@ -317,6 +403,11 @@ async function dispatchPendingLeads() {
           assignedBy:        "System Auto Assignment",
           assignmentPending: false,
           assignmentReason:  null,
+          overdue:           false,
+          isOverdue:         false,
+          reminderSent:     false,
+          dueTime:           firebase.firestore.Timestamp.fromDate(new Date(Date.now() + (getCRMSetting("reminderAfterMinutes") || 30) * 60 * 1000)),
+          nextReminder:      firebase.firestore.Timestamp.fromDate(new Date(Date.now() + (getCRMSetting("reminderAfterMinutes") || 30) * 60 * 1000)),
           history:           firebase.firestore.FieldValue.arrayUnion({
             text:          `Auto-assigned to ${ASSIGNMENT_ROLE_LABELS[assignmentRole] || assignmentRole} ${member.name || member.email} at office opening`,
             statusAtTime:  "Not Open",
@@ -358,3 +449,4 @@ window.getNextAvailableUserByRole = getNextAvailableUserByRole;
 window.writeAuditLog = writeAuditLog;
 window.isValidAssignmentTime = isValidAssignmentTime;
 window.getTodayLeaves = getTodayLeaves;
+window.recalculateLeadState = recalculateLeadState;

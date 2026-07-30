@@ -44,6 +44,7 @@ async function initApp() {
   // Load personal AI settings
   await loadAISettings();
 
+  await migratePendingAssignmentLeadState();
   await loadLeadsView();
 
   if (CURRENT_USER.role === "superadmin") {
