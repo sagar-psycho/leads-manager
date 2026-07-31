@@ -45,6 +45,7 @@ async function initApp() {
   await loadAISettings();
 
   await migratePendingAssignmentLeadState();
+  await assignPendingLeads();
   await loadLeadsView();
 
   if (CURRENT_USER.role === "superadmin") {
@@ -58,7 +59,7 @@ async function initApp() {
 
   // Start background watchers
   startReminderWatcher();
-  startAssignmentWatcher();          // smart assignment engine
+  startPendingAssignmentPoller();
 
   // Post-login checks
   await checkAISetupPrompt();

@@ -190,6 +190,7 @@ let ACTIVE_MEMBERS = [];  // cached active sales member list for dropdowns
 let ACTIVE_HR = [];       // cached active HR list for dropdowns
 let toastedLeadIds = new Set(); // session-only, avoid repeat toast spam
 let leadBadgeRefreshTimer = null;
+let PENDING_MANUAL_SELECTIONS = new Set();
 
 // Pagination state
 const PAGINATION_STATE = {
@@ -1672,10 +1673,9 @@ function renderLeadsTable() {
   const tbody = document.getElementById("leadsTableBody");
   if (!tbody) return;
 
-  // Apply client-side search filter if present
   let rows = ALL_LEADS;
   const searchFilter = PAGINATION_STATE.currentFilters.search;
-  
+
   if (searchFilter) {
     rows = rows.filter((l) => {
       const hay = `${l.fullName} ${l.phoneNumber} ${l.companyName} ${l.email}`.toLowerCase();
@@ -1688,35 +1688,33 @@ function renderLeadsTable() {
     return;
   }
 
-  // Get user preferences
   const prefs = getUserTablePreferences();
   const showCampaign = prefs.showCampaign !== false;
   const showAssigned = prefs.showAssigned !== false;
-  const colCount = 6 + (showCampaign ? 1 : 0) + (showAssigned ? 1 : 0);
-
   const canEditDelete = CURRENT_USER.role === "superadmin";
+  const canManualAssign = CURRENT_USER.role === "admin" || CURRENT_USER.role === "superadmin";
+  const pendingRows = rows.filter((lead) => !!lead.assignmentPending);
+
   tbody.innerHTML = rows.map((l) => {
     const created = l.createdAt ? l.createdAt.toDate() : new Date();
     const uncontactedOverdue = isUncontactedOverdue(l);
     const isPending = !!l.assignmentPending;
     const phone = normalisePhone(l.phoneNumber);
-    
-    // Truncate long names
+    const selected = PENDING_MANUAL_SELECTIONS.has(l.id) ? "checked" : "";
+
     const fullName = escapeHtml(l.fullName);
     const displayName = fullName.length > 25 ? fullName.substring(0, 22) + '...' : fullName;
     const nameTitle = fullName.length > 25 ? fullName : '';
     const isNewBadge = isLeadNew(l)
       ? '<span class="lead-new-badge">NEW</span>'
       : '';
-    
-    // Truncate campaign name
+
     const campaignName = escapeHtml(l.campaignName || l.serviceNeeded || "General");
     const displayCampaign = campaignName.length > 20 ? campaignName.substring(0, 17) + '...' : campaignName;
     const campaignTitle = campaignName.length > 20 ? campaignName : '';
-    
-    // Status badge with attempt count
+
     let statusBadgeHTML = `<span class="status-badge ${STATUS_BADGE_CLASS[l.status] || ""}">${l.status}</span>`;
-    
+
     if (l.status === "Not Picking Call" && l.consecutiveNotPickingAttempts) {
       const maxAttempts = getCRMSetting("maxConsecutiveNotPickingAttempts") || 3;
       statusBadgeHTML += `<div class="small text-muted mt-1">
@@ -1727,13 +1725,16 @@ function renderLeadsTable() {
         <span class="badge badge-system">System Generated</span>
       </div>`;
     }
-    
+
     if (uncontactedOverdue) {
       statusBadgeHTML += '<div class="small text-danger mt-1"><i class="bi bi-alarm"></i> Overdue</div>';
     }
-    
+
     return `
     <tr class="${uncontactedOverdue ? "row-urgent" : ""}">
+      <td class="text-center">
+        ${canManualAssign && isPending ? `<input type="checkbox" class="form-check-input lead-manual-check" data-lead-id="${l.id}" ${selected}>` : '<span class="text-muted">—</span>'}
+      </td>
       <td class="text-center"><span class="badge bg-light text-dark">${l.slNo || '—'}</span></td>
       <td class="text-nowrap small">${formatDateTime(created)}</td>
       <td>
@@ -1760,7 +1761,7 @@ function renderLeadsTable() {
                   title="View Details" data-bs-toggle="tooltip">
             <i class="bi bi-eye"></i>
           </button>
-          ${isPending ? '' : `
+          ${isPending ? `<button class="btn btn-icon btn-sm btn-brand" onclick="openManualLeadAssignmentModal('${l.id}')" title="Manual Assignment" data-bs-toggle="tooltip"><i class="bi bi-person-check-fill"></i></button>` : `
           <button class="btn btn-icon btn-sm btn-primary" onclick="openStatusModal('${l.id}')" 
                   title="Update Status" data-bs-toggle="tooltip">
             <i class="bi bi-pencil-square"></i>
@@ -1796,14 +1797,181 @@ function renderLeadsTable() {
       </td>
     </tr>`;
   }).join("");
-  
-  // Initialize Bootstrap tooltips
+
+  refreshManualAssignmentToolbar({ pendingRows });
+  bindManualAssignmentCheckboxes();
   initializeTooltips();
 }
 
 /**
  * Initialize Bootstrap tooltips for action buttons
  */
+function refreshManualAssignmentToolbar({ pendingRows = [] } = {}) {
+  const toolbar = document.getElementById("manualAssignmentToolbar");
+  const counter = document.getElementById("manualSelectionCounter");
+  const selectAllPendingLeads = document.getElementById("selectAllPendingLeads");
+  const canManualAssign = CURRENT_USER.role === "admin" || CURRENT_USER.role === "superadmin";
+
+  if (!toolbar || !counter || !selectAllPendingLeads) return;
+
+  const pendingCount = pendingRows.length || ALL_LEADS.filter((lead) => !!lead.assignmentPending).length;
+  const isVisible = canManualAssign && pendingCount > 0;
+  toolbar.classList.toggle("d-none", !isVisible);
+  counter.textContent = String(PENDING_MANUAL_SELECTIONS.size);
+  selectAllPendingLeads.checked = pendingCount > 0 && PENDING_MANUAL_SELECTIONS.size === pendingCount;
+}
+
+function bindManualAssignmentCheckboxes() {
+  const checkboxes = document.querySelectorAll(".lead-manual-check");
+  checkboxes.forEach((checkbox) => {
+    checkbox.addEventListener("change", (event) => {
+      const { leadId } = event.target.dataset;
+      if (!leadId) return;
+      if (event.target.checked) {
+        PENDING_MANUAL_SELECTIONS.add(leadId);
+      } else {
+        PENDING_MANUAL_SELECTIONS.delete(leadId);
+      }
+      refreshManualAssignmentToolbar();
+    });
+  });
+
+  const selectAllPendingLeads = document.getElementById("selectAllPendingLeads");
+  if (selectAllPendingLeads) {
+    selectAllPendingLeads.onclick = () => {
+      const pendingIds = ALL_LEADS.filter((lead) => !!lead.assignmentPending).map((lead) => lead.id);
+      if (selectAllPendingLeads.checked) {
+        pendingIds.forEach((id) => PENDING_MANUAL_SELECTIONS.add(id));
+      } else {
+        pendingIds.forEach((id) => PENDING_MANUAL_SELECTIONS.delete(id));
+      }
+      refreshManualAssignmentToolbar();
+      renderLeadsTable();
+    };
+  }
+}
+
+async function openManualLeadAssignmentModal(leadId) {
+  const lead = ALL_LEADS.find((item) => item.id === leadId);
+  if (!lead || !lead.assignmentPending) {
+    toast("Only pending leads can be manually assigned.", "warning");
+    return;
+  }
+
+  if (!(CURRENT_USER.role === "admin" || CURRENT_USER.role === "superadmin")) {
+    toast("Manual assignment is restricted to Admin and Super Admin.", "danger");
+    return;
+  }
+
+  window.manualBulkAssignmentLeadIds = [leadId];
+  document.getElementById("manualAssignmentLeadId").textContent = lead.slNo || lead.id;
+  document.getElementById("manualAssignmentLeadId").dataset.leadId = lead.id;
+  document.getElementById("manualAssignmentLeadName").textContent = lead.fullName || "—";
+  document.getElementById("manualAssignmentLeadPhone").textContent = lead.phoneNumber || "—";
+  document.getElementById("manualAssignmentLeadCampaign").textContent = lead.campaignName || lead.serviceNeeded || "General";
+  document.getElementById("manualAssignmentLeadCreated").textContent = formatDateTime(lead.createdAt ? lead.createdAt.toDate() : new Date());
+  document.getElementById("manualAssignmentLeadStatus").textContent = lead.status || "—";
+  document.getElementById("manualAssignmentModalLabel").innerHTML = '<i class="bi bi-person-check-fill me-2"></i>Manual Lead Assignment';
+  document.getElementById("manualAssignmentConfirmBtn").innerHTML = '<i class="bi bi-person-check-fill me-1"></i>Assign Lead';
+  document.getElementById("manualOverrideWrap").style.display = CURRENT_USER.role === "superadmin" ? "" : "none";
+
+  await populateManualAssignmentEmployees();
+  const modal = new bootstrap.Modal(document.getElementById("manualAssignmentModal"));
+  modal.show();
+}
+
+function openBulkManualAssignmentModal() {
+  const selected = Array.from(PENDING_MANUAL_SELECTIONS);
+  if (selected.length === 0) {
+    toast("Select one or more pending leads first.", "warning");
+    return;
+  }
+
+  const lead = ALL_LEADS.find((item) => item.id === selected[0]);
+  if (!lead) {
+    toast("Selected lead could not be found.", "warning");
+    return;
+  }
+
+  window.manualBulkAssignmentLeadIds = selected;
+  document.getElementById("manualAssignmentLeadId").textContent = `${selected.length} selected`;
+  document.getElementById("manualAssignmentLeadId").dataset.leadId = selected[0];
+  document.getElementById("manualAssignmentLeadName").textContent = lead.fullName || "—";
+  document.getElementById("manualAssignmentLeadPhone").textContent = lead.phoneNumber || "—";
+  document.getElementById("manualAssignmentLeadCampaign").textContent = lead.campaignName || lead.serviceNeeded || "General";
+  document.getElementById("manualAssignmentLeadCreated").textContent = `${selected.length} pending leads`;
+  document.getElementById("manualAssignmentLeadStatus").textContent = "Pending Assignment";
+  document.getElementById("manualAssignmentModalLabel").innerHTML = '<i class="bi bi-person-check-fill me-2"></i>Bulk Manual Lead Assignment';
+  document.getElementById("manualAssignmentConfirmBtn").innerHTML = '<i class="bi bi-person-check-fill me-1"></i>Assign Selected';
+  document.getElementById("manualOverrideWrap").style.display = CURRENT_USER.role === "superadmin" ? "" : "none";
+
+  populateManualAssignmentEmployees();
+  const modal = new bootstrap.Modal(document.getElementById("manualAssignmentModal"));
+  modal.show();
+}
+
+async function populateManualAssignmentEmployees() {
+  const employeeSelect = document.getElementById("manualAssignmentEmployeeSelect");
+  const employeesList = document.getElementById("manualAssignmentEmployeesList");
+  if (!employeeSelect || !employeesList) return;
+
+  const employees = await getManualAssignableMembers();
+  employeeSelect.innerHTML = "";
+  employeesList.textContent = employees.length
+    ? `${employees.length} available employee${employees.length === 1 ? "" : "s"} loaded.`
+    : "No available employees are currently eligible for manual assignment.";
+
+  if (employees.length === 0) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No available employees";
+    employeeSelect.appendChild(option);
+    return;
+  }
+
+  employees.forEach((employee) => {
+    const option = document.createElement("option");
+    option.value = employee.id;
+    option.textContent = `${employee.name || employee.email} (${employee.role || "member"})`;
+    employeeSelect.appendChild(option);
+  });
+}
+
+async function confirmManualLeadAssignment() {
+  const employeeSelect = document.getElementById("manualAssignmentEmployeeSelect");
+  const targetLeadIds = Array.isArray(window.manualBulkAssignmentLeadIds) && window.manualBulkAssignmentLeadIds.length
+    ? window.manualBulkAssignmentLeadIds
+    : [document.getElementById("manualAssignmentLeadId").dataset.leadId].filter(Boolean);
+
+  if (!employeeSelect || !employeeSelect.value) {
+    toast("Choose an employee before assigning the lead.", "warning");
+    return;
+  }
+
+  if (!targetLeadIds.length) {
+    toast("No pending lead is selected for manual assignment.", "warning");
+    return;
+  }
+
+  const overrideOfficeHours = document.getElementById("manualOverrideOfficeHours")?.checked || false;
+  const modal = bootstrap.Modal.getInstance(document.getElementById("manualAssignmentModal"));
+
+  try {
+    for (const leadId of targetLeadIds) {
+      await assignLeadToEmployee(leadId, employeeSelect.value, overrideOfficeHours);
+    }
+
+    if (modal) modal.hide();
+    PENDING_MANUAL_SELECTIONS.clear();
+    window.manualBulkAssignmentLeadIds = [];
+    renderLeadsTable();
+    toast(targetLeadIds.length > 1 ? `Assigned ${targetLeadIds.length} pending leads successfully.` : "Lead assigned successfully.", "success");
+  } catch (error) {
+    console.error("Manual assignment failed:", error);
+    toast(error.message || "Manual assignment failed.", "danger");
+  }
+}
+
 function initializeTooltips() {
   // Destroy existing tooltips first
   const existingTooltips = document.querySelectorAll('[data-bs-toggle="tooltip"]');

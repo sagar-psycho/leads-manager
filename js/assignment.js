@@ -116,9 +116,100 @@ function isMemberAvailableNow(memberId, todayLeaves) {
   return isUserAvailableNow(memberId, todayLeaves);
 }
 
+function canManualAssignNow(overrideOfficeHours = false) {
+  if (CURRENT_USER.role !== "admin" && CURRENT_USER.role !== "superadmin") {
+    return false;
+  }
+
+  if (isHolidayToday()) return false;
+  if (isBreakTimeNow()) return false;
+
+  const officeOpen = isOfficeHoursNow();
+  if (!officeOpen && !overrideOfficeHours) return false;
+
+  return true;
+}
+
+async function getManualAssignableMembers() {
+  await refreshActiveMembers();
+  const todayLeaves = await getTodayLeaves();
+  const assignable = [];
+
+  for (const member of ACTIVE_MEMBERS || []) {
+    const isAvailable = isUserAvailableNow(member.id, todayLeaves);
+    if (!isAvailable) continue;
+
+    const activeLeadsCount = await countAssignedLeads(member.id, false);
+    const todayAssignedCount = await countAssignedLeads(member.id, true);
+
+    assignable.push({
+      ...member,
+      role: member.role || "member",
+      activeLeadsCount,
+      todayAssignedCount,
+      availabilityStatus: "Available"
+    });
+  }
+
+  return assignable;
+}
+
+async function countAssignedLeads(memberId, todayOnly = false) {
+  if (!leadsRef || !memberId) return 0;
+
+  let query = leadsRef.where("assignedTo", "==", memberId);
+  if (todayOnly) {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    query = query.where("assignedAt", ">=", firebase.firestore.Timestamp.fromDate(start));
+  }
+
+  const snapshot = await query.get();
+  return snapshot.size || 0;
+}
+
 function isAssignedLead(lead) {
   const assignedTo = lead?.assignedTo;
   return !!(assignedTo && assignedTo !== "Pending" && assignedTo !== "" && assignedTo !== null);
+}
+
+function isPendingLead(lead) {
+  if (!lead) return false;
+  const assignedTo = typeof lead.assignedTo === "string" ? lead.assignedTo.trim().toLowerCase() : lead.assignedTo;
+  const assignmentStatus = typeof lead.assignmentStatus === "string" ? lead.assignmentStatus.trim().toLowerCase() : lead.assignmentStatus;
+
+  return !!(
+    lead.assignmentPending ||
+    assignedTo === "pending" ||
+    assignedTo === null ||
+    assignedTo === "" ||
+    assignmentStatus === "pending" ||
+    lead.assignedMemberId === null ||
+    lead.assignedMember === null
+  );
+}
+
+async function getPendingLeadCandidates() {
+  if (!leadsRef) return [];
+
+  const snapshot = await leadsRef.get();
+  if (!snapshot || snapshot.empty) return [];
+
+  const pendingLeadMap = new Map();
+  snapshot.forEach(doc => {
+    const lead = doc.data();
+    if (isPendingLead(lead)) {
+      pendingLeadMap.set(doc.id, { id: doc.id, ...lead });
+    }
+  });
+
+  const pendingLeads = Array.from(pendingLeadMap.values()).sort((a, b) => {
+    const aTime = getLeadTimestampValue(a.createdAt || a.assignedAt || a.updatedAt);
+    const bTime = getLeadTimestampValue(b.createdAt || b.assignedAt || b.updatedAt);
+    return (aTime || 0) - (bTime || 0);
+  });
+
+  return pendingLeads;
 }
 
 function getLeadTimestampValue(value) {
@@ -158,7 +249,7 @@ function recalculateLeadState(lead) {
     nextReminder: null
   };
 
-  const isPendingAssignment = !!(lead?.assignmentPending || lead?.assignedTo === "Pending" || lead?.assignedTo === null || lead?.assignedTo === "" || lead?.assignedMemberId === null || lead?.assignedMember === null);
+  const isPendingAssignment = isPendingLead(lead);
 
   if (isPendingAssignment) {
     return nextState;
@@ -221,6 +312,157 @@ async function getNextAvailableMember(todayLeaves) {
   return getNextAvailableUserByRole("member", todayLeaves);
 }
 
+async function assignLead(leadDoc) {
+  if (!leadDoc || !leadDoc.id) return false;
+
+  console.log("Assigning Lead:");
+  console.log("Lead ID:", leadDoc.id);
+
+  const leadSnap = await leadsRef.doc(leadDoc.id).get();
+  if (!leadSnap.exists) {
+    return false;
+  }
+
+  const leadData = leadSnap.data();
+  if (!isPendingLead(leadData)) {
+    return false;
+  }
+
+  const assignmentRole = getAssignmentRoleForLead(leadData);
+  const todayLeaves = await getTodayLeaves();
+  const member = await getNextAvailableUserByRole(assignmentRole, todayLeaves);
+
+  if (!member) {
+    console.log("Assigned To:", "No available employee");
+    await writeAuditLog(leadDoc.id, leadData.slNo, "Skipped", `No ${assignmentRole} available`, "System");
+    return false;
+  }
+
+  console.log("Assigned To:", member.id);
+
+  const now = firebase.firestore.Timestamp.now();
+  await leadsRef.doc(leadDoc.id).update({
+    assignedTo:        member.id,
+    assignedToName:    member.name || member.email,
+    assignedAt:        now,
+    assignedBy:        "System Auto Assignment",
+    assignmentPending: false,
+    assignmentStatus:  "assigned",
+    assignmentReason:  null,
+    overdue:           false,
+    isOverdue:         false,
+    reminderSent:     false,
+    dueTime:           firebase.firestore.Timestamp.fromDate(new Date(Date.now() + (getCRMSetting("reminderAfterMinutes") || 30) * 60 * 1000)),
+    nextReminder:      firebase.firestore.Timestamp.fromDate(new Date(Date.now() + (getCRMSetting("reminderAfterMinutes") || 30) * 60 * 1000)),
+    history:           firebase.firestore.FieldValue.arrayUnion({
+      text:          `Auto-assigned to ${ASSIGNMENT_ROLE_LABELS[assignmentRole] || assignmentRole} ${member.name || member.email} at office opening`,
+      statusAtTime:  "Not Open",
+      updatedBy:     "system",
+      updatedByName: "System Auto Assignment",
+      timestamp:     new Date().toISOString()
+    })
+  });
+
+  await writeAuditLog(leadDoc.id, leadData.slNo, "Assigned After Office Opening",
+    `Assigned to ${member.name || member.email}`, "System");
+
+  console.log("Assignment Completed");
+  return true;
+}
+
+async function assignLeadToEmployee(leadId, memberId, overrideOfficeHours = false) {
+  if (!(CURRENT_USER.role === "admin" || CURRENT_USER.role === "superadmin")) {
+    throw new Error("Manual lead assignment is restricted to Admin and Super Admin.");
+  }
+
+  if (!leadId || !memberId) {
+    throw new Error("Lead and employee are required for manual assignment.");
+  }
+
+  if (!canManualAssignNow(overrideOfficeHours)) {
+    throw new Error("Manual assignment is only allowed during office hours unless Super Admin enables override.");
+  }
+
+  const leadDoc = await leadsRef.doc(leadId).get();
+  if (!leadDoc.exists) {
+    throw new Error("Lead does not exist.");
+  }
+
+  const leadData = leadDoc.data();
+  if (!isPendingLead(leadData)) {
+    throw new Error("This lead is no longer pending and cannot be manually assigned.");
+  }
+
+  const employee = (await getManualAssignableMembers()).find((m) => m.id === memberId);
+  if (!employee) {
+    throw new Error("Selected employee is not available for assignment.");
+  }
+
+  const now = firebase.firestore.Timestamp.now();
+  const assignedToName = employee.name || employee.email;
+
+  await leadsRef.doc(leadId).update({
+    assignedTo: employee.id,
+    assignedToName,
+    assignedAt: now,
+    assignedBy: `${CURRENT_USER.name || CURRENT_USER.email} (${CURRENT_USER.role})`,
+    assignedById: CURRENT_USER.uid,
+    assignmentType: "Manual",
+    assignmentPending: false,
+    assignmentReason: null,
+    assignmentStatus: "assigned",
+    overdue: false,
+    isOverdue: false,
+    reminderSent: false,
+    dueTime: firebase.firestore.Timestamp.fromDate(new Date(Date.now() + (getCRMSetting("reminderAfterMinutes") || 30) * 60 * 1000)),
+    nextReminder: firebase.firestore.Timestamp.fromDate(new Date(Date.now() + (getCRMSetting("reminderAfterMinutes") || 30) * 60 * 1000)),
+    history: firebase.firestore.FieldValue.arrayUnion({
+      text: `Lead manually assigned by ${CURRENT_USER.name || CURRENT_USER.email} to ${assignedToName}`,
+      statusAtTime: leadData.status || "Not Open",
+      updatedBy: CURRENT_USER.uid,
+      updatedByName: CURRENT_USER.name || CURRENT_USER.email,
+      timestamp: new Date().toISOString()
+    })
+  });
+
+  await notificationsRef?.add({
+    userId: employee.id,
+    title: "New Lead Assigned",
+    message: `Lead #${leadData.slNo} (${leadData.fullName}) has been assigned to you manually.`,
+    createdAt: now,
+    read: false
+  });
+
+  if (getCRMSetting("browserNotifications") !== false) {
+    try {
+      if (typeof showBrowserNotification === "function") {
+        showBrowserNotification("New Lead Assigned", `Lead #${leadData.slNo} has been assigned to ${assignedToName}.`);
+      }
+    } catch (_) {}
+  }
+
+  if (getCRMSetting("emailAlerts") === true && employee.email) {
+    console.log("Email notification queued for:", employee.email);
+  }
+
+  if (getCRMSetting("whatsappAlerts") === true && employee.phoneNumber) {
+    console.log("WhatsApp notification queued for:", employee.phoneNumber);
+  }
+
+  await auditLogRef.add({
+    leadId: leadId,
+    customer: leadData.fullName || "—",
+    assignedFrom: leadData.assignedToName || "Pending",
+    assignedTo: assignedToName,
+    assignedBy: CURRENT_USER.name || CURRENT_USER.email,
+    role: CURRENT_USER.role,
+    reason: overrideOfficeHours ? "Manual override assigned outside office hours" : "Manual lead assignment",
+    timestamp: now
+  });
+
+  return { leadId, assignedTo: assignedToName };
+}
+
 // ── Smart createLead — used instead of the original ───────────
 async function smartCreateLead(formData) {
   const assignmentRole = formData.assignmentRole || DEFAULT_ASSIGNMENT_ROLE;
@@ -265,6 +507,7 @@ async function smartCreateLead(formData) {
       consecutiveNotPickingAttempts: 0,  // Track consecutive "Not Picking Call" attempts
       assignmentRole: assignmentRole,
       assignmentPending: false,
+      assignmentStatus: "assigned",
       overdue: false,
       isOverdue: false,
       reminderSent: false,
@@ -286,6 +529,7 @@ async function smartCreateLead(formData) {
         assignedAt:          now,
         assignedBy:          "System Auto Assignment",
         assignmentPending:   false,
+        assignmentStatus:    "assigned",
         assignmentReason:    null,
         overdue:             false,
         isOverdue:           false,
@@ -319,6 +563,7 @@ async function smartCreateLead(formData) {
         assignedAt:        null,
         assignedBy:        null,
         assignmentPending: true,
+        assignmentStatus:  "pending",
         assignmentReason:  reason,
         overdue:           false,
         isOverdue:         false,
@@ -359,89 +604,47 @@ async function smartCreateLead(formData) {
 }
 
 // ── Pending assignment dispatcher (called at office open time) ─
-// Assigns queued leads one by one with the configured interval.
-let _dispatchTimer = null;
+// Recovers every pending lead, including older records that were left behind.
+let pendingAssignmentPoller = null;
 
-async function dispatchPendingLeads() {
-  if (!isValidAssignmentTime()) return;
+async function assignPendingLeads() {
+  console.log("Checking pending leads...");
 
-  // Get all pending queue entries, ordered by creation time
-  const qSnap = await assignmentQueueRef.orderBy("createdAt", "asc").get();
-  if (qSnap.empty) return;
+  if (!isValidAssignmentTime()) {
+    console.log("Office Closed");
+    return 0;
+  }
 
-  const todayLeaves = await getTodayLeaves();
-  const intervalMs  = (getCRMSetting("assignmentIntervalMinutes") || 30) * 60 * 1000;
+  console.log("Office Open");
+  const pendingLeads = await getPendingLeadCandidates();
+  console.log(`Pending Leads Found: ${pendingLeads.length}`);
 
-  let delay = 0;
-  qSnap.forEach(qDoc => {
-    const { leadId, slNo } = qDoc.data();
-    setTimeout(async () => {
-      if (!isValidAssignmentTime()) return; // re-check before each assignment
-      try {
-        // Check if lead still exists before attempting update
-        const leadDoc = await leadsRef.doc(leadId).get();
-        if (!leadDoc.exists) {
-          console.warn(`Lead ${leadId} no longer exists, removing from queue`);
-          await assignmentQueueRef.doc(leadId).delete();
-          await writeAuditLog(leadId, slNo, "Skipped", "Lead was deleted before assignment", "System");
-          return;
-        }
-        
-        const leadData = leadDoc.data();
-        const assignmentRole = getAssignmentRoleForLead(leadData);
-        const member = await getNextAvailableUserByRole(assignmentRole, todayLeaves);
-        if (!member) {
-          await writeAuditLog(leadId, slNo, "Skipped", `No ${assignmentRole} available`, "System");
-          return;
-        }
+  if (pendingLeads.length === 0) {
+    console.log("No Pending Leads");
+    return 0;
+  }
 
-        const now = firebase.firestore.Timestamp.now();
-        await leadsRef.doc(leadId).update({
-          assignedTo:        member.id,
-          assignedToName:    member.name || member.email,
-          assignedAt:        now,
-          assignedBy:        "System Auto Assignment",
-          assignmentPending: false,
-          assignmentReason:  null,
-          overdue:           false,
-          isOverdue:         false,
-          reminderSent:     false,
-          dueTime:           firebase.firestore.Timestamp.fromDate(new Date(Date.now() + (getCRMSetting("reminderAfterMinutes") || 30) * 60 * 1000)),
-          nextReminder:      firebase.firestore.Timestamp.fromDate(new Date(Date.now() + (getCRMSetting("reminderAfterMinutes") || 30) * 60 * 1000)),
-          history:           firebase.firestore.FieldValue.arrayUnion({
-            text:          `Auto-assigned to ${ASSIGNMENT_ROLE_LABELS[assignmentRole] || assignmentRole} ${member.name || member.email} at office opening`,
-            statusAtTime:  "Not Open",
-            updatedBy:     "system",
-            updatedByName: "System Auto Assignment",
-            timestamp:     new Date().toISOString()
-          })
-        });
-        await assignmentQueueRef.doc(leadId).delete();
-        await writeAuditLog(leadId, slNo, "Assigned After Office Opening",
-          `Assigned to ${member.name || member.email}`, "System");
+  let assignedCount = 0;
+  for (const lead of pendingLeads) {
+    if (await assignLead(lead)) {
+      assignedCount++;
+    }
+  }
 
-        // Notify the assigned member
-        if (getCRMSetting("toastNotifications") !== false) {
-          toast(`Lead #${slNo} auto-assigned to ${member.name || member.email}.`, "info");
-        }
-      } catch (err) {
-        console.error("Dispatch error for lead", leadId, err);
-        // Don't crash the entire queue - continue with next lead
-      }
-    }, delay);
-    delay += intervalMs;
-  });
+  console.log("Assignment Completed");
+  return assignedCount;
 }
 
-// ── Poll every minute — trigger dispatch when office opens ────
-function startAssignmentWatcher() {
-  setInterval(async () => {
-    if (isValidAssignmentTime()) {
-      await dispatchPendingLeads();
-    }
+function startPendingAssignmentPoller() {
+  if (pendingAssignmentPoller) return;
+
+  pendingAssignmentPoller = setInterval(async () => {
+    await assignPendingLeads();
   }, 60 * 1000);
-  // Run immediately on load too
-  dispatchPendingLeads();
+}
+
+function startAssignmentWatcher() {
+  startPendingAssignmentPoller();
 }
 
 // Export functions for use by other modules
@@ -449,4 +652,10 @@ window.getNextAvailableUserByRole = getNextAvailableUserByRole;
 window.writeAuditLog = writeAuditLog;
 window.isValidAssignmentTime = isValidAssignmentTime;
 window.getTodayLeaves = getTodayLeaves;
+window.canManualAssignNow = canManualAssignNow;
+window.getManualAssignableMembers = getManualAssignableMembers;
+window.assignLead = assignLead;
+window.assignLeadToEmployee = assignLeadToEmployee;
+window.assignPendingLeads = assignPendingLeads;
+window.startPendingAssignmentPoller = startPendingAssignmentPoller;
 window.recalculateLeadState = recalculateLeadState;
