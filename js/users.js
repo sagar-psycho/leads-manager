@@ -59,8 +59,10 @@ if (addUserForm) {
     const role = document.getElementById("newUserRole").value;
 
     // Secondary app instance so Super Admin's session is untouched
-    const secondaryApp = firebase.initializeApp(firebaseConfig, "Secondary-" + Date.now());
+    let secondaryApp = null;
     try {
+      secondaryApp = firebase.initializeApp(window.firebaseConfig, "Secondary-" + Date.now());
+
       const cred = await secondaryApp.auth().createUserWithEmailAndPassword(email, password);
       const newUid = cred.user.uid;
 
@@ -75,6 +77,7 @@ if (addUserForm) {
 
       await secondaryApp.auth().signOut();
       await secondaryApp.delete();
+      secondaryApp = null;
 
       addUserForm.reset();
       bootstrap.Modal.getInstance(document.getElementById("addUserModal")).hide();
@@ -87,8 +90,11 @@ if (addUserForm) {
       if (err.code === "auth/email-already-in-use") msg = "This email is already registered.";
       if (err.code === "auth/weak-password") msg = "Password should be at least 6 characters.";
       toast(msg, "danger");
-      try { await secondaryApp.delete(); } catch (_) {}
     } finally {
+      if (secondaryApp) {
+        try { await secondaryApp.auth().signOut(); } catch (_) {}
+        try { await secondaryApp.delete(); } catch (_) {}
+      }
       btn.disabled = false;
       btn.innerHTML = "Add Team Member";
     }
