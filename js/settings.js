@@ -1,517 +1,419 @@
-// ============================================================
-// SETTINGS.JS — CRM Settings (single Firestore doc model)
-//
-// Storage:  crmSettings/general  (ONE document, all sections)
-// Super Admin : full read + write via UI
-// Admin       : read-only view (all inputs disabled, save/reset hidden)
-// Member      : read-only view (all inputs disabled, save/reset hidden)
-//
-// Every authenticated user subscribes via onSnapshot() so changes
-// made by Super Admin propagate in real time — no page refresh needed.
-// Every other module calls getCRMSetting("section.key") at runtime.
-// ============================================================
+/**
+ * settings.js - Settings page rendering and save logic
+ */
 
-// ── Single Firestore document reference ──────────────────────
-const CRM_SETTINGS_DOC = db.collection("crmSettings").doc("general");
+import { FB } from './firebase.js';
+import { getUser, getUserDoc, updateUserField, getApiKey, isAdmin } from './auth.js';
+import { verifyGeminiKey } from './ai.js';
+import { safeStr, formatDate } from './utils.js';
+import { showToast, applyTheme } from './ui.js';
+import { getPageSpeedApiKey, savePageSpeedApiKey, validateApiKey } from './pagespeed.js';
 
-// ── Flat in-memory cache (mirrors the Firestore doc shape) ───
-let CRM_CONFIG = _defaultConfig();
-
-function _defaultConfig() {
-  return {
-    // § 1 Working Days
-    workingDays: ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"],
-    // § 2 Office Hours
-    officeStart: "09:00",
-    officeEnd:   "18:00",
-    // § 3 Break Timings  (array stored under breakTimings key)
-    breakTimings: [
-      { id: "b1", name: "Morning Break", start: "11:00", end: "11:15" },
-      { id: "b2", name: "Lunch Break",   start: "13:00", end: "14:00" },
-      { id: "b3", name: "Evening Break", start: "16:30", end: "16:45" }
-    ],
-    // § 4 Holidays  (array stored under holidays key)
-    holidays: [],
-    // § 5-6 Lead / Follow-up Rules
-    uncontactedAlertMinutes:           30,
-    reminderAfterMinutes:              30,
-    reminderFreqMinutes:               30,
-    maxReminderCount:                  5,
-    maxConsecutiveNotPickingAttempts:  3,   // Maximum consecutive Not Picking Call attempts
-    assignmentIntervalMinutes:         30,   // gradual dispatch interval
-    lunchStart:                       "13:00", // half-day boundary
-    autoMoveToNoResponse:             true,  // Auto-move to "No Response" after max consecutive attempts
-    autoFollowUp:                     true,
-    autoReminder:                     true,
-    autoEscalation:                   false,
-    // § 8 Notifications
-    browserNotifications:    true,
-    toastNotifications:      true,
-    soundAlerts:             false,
-    whatsappAlerts:          false,
-    emailAlerts:             false,
-    // § 9 AI Defaults
-    aiProvider:    "Groq",
-    aiModel:       "llama-3.3-70b-versatile",
-    aiTemperature: 0.75,
-    aiMaxTokens:   1200,
-    // § 10 System Settings
-    timezone:    "Asia/Kolkata",
-    dateFormat:  "DD MMM YYYY",
-    timeFormat:  "12h",
-    currency:    "INR",
-  };
-}
-
-// ── Public dot-path accessor ──────────────────────────────────
-// Usage examples:
-//   getCRMSetting("uncontactedAlertMinutes")  → 30
-//   getCRMSetting("breakTimings")             → [{...}]
-//   getCRMSetting("officeStart")              → "09:00"
-function getCRMSetting(path) {
-  return path.split(".").reduce((obj, key) => obj?.[key], CRM_CONFIG);
-}
-
-// ── Single onSnapshot subscription ───────────────────────────
-// Called once at app startup for every role.
-// Writes CRM_CONFIG from Firestore data, then notifies dependents.
-function subscribeCRMSettings() {
-  CRM_SETTINGS_DOC.onSnapshot(snap => {
-    if (snap.exists) {
-      // Merge Firestore data over defaults so new keys always have a value
-      CRM_CONFIG = { ..._defaultConfig(), ...snap.data() };
+// ── RENDER SETTINGS PAGE ──────────────────────────────────────
+export async function render() {
+  const container = document.getElementById('settings-container');
+  if (!container) return;
+  const ud = getUserDoc() || {};
+  
+  // Fetch PageSpeed API key for admin users
+  let pageSpeedKey = '';
+  let lastUpdated = '';
+  if (isAdmin()) {
+    try {
+      const docRef = FB.docRef('settings', 'global');
+      const snap = await FB.getDoc(docRef);
+      if (snap.exists()) {
+        const data = snap.data();
+        pageSpeedKey = data.pageSpeedApiKey || '';
+        lastUpdated = data.updatedAt ? formatDate(data.updatedAt.toMillis ? data.updatedAt.toMillis() : data.updatedAt) : '';
+      }
+    } catch (e) {
+      console.warn('[Settings] Failed to fetch PageSpeed key:', e.message);
     }
-    // If the settings page is currently visible, re-render it
-    const section = document.getElementById("view-crmsettings");
-    if (section && !section.classList.contains("d-none")) {
-      renderCRMSettingsView();
-    }
-    // Re-evaluate reminders with the new values
-    if (typeof checkReminders === "function") checkReminders();
-  }, err => console.error("crmSettings/general snapshot error:", err));
+  }
+
+  container.innerHTML = `
+    ${_sectionGroq(ud)}
+    ${_sectionGemini(ud)}
+    ${_sectionOpenRouter(ud)}
+    ${isAdmin() ? _sectionGoogleApis(pageSpeedKey, lastUpdated) : ''}
+    ${_sectionPreferences(ud)}
+    ${_sectionProfile(ud)}
+    ${_sectionFirebase()}
+    ${_sectionData()}
+  `;
 }
 
-// ── Schedule helpers (used by leads.js checkReminders) ───────
-function isOfficeHoursNow() {
-  const now = new Date();
-  const dayName = ["Sunday","Monday","Tuesday","Wednesday",
-                   "Thursday","Friday","Saturday"][now.getDay()];
-  if (!(CRM_CONFIG.workingDays || []).includes(dayName)) return false;
-  const [sh, sm] = (CRM_CONFIG.officeStart || "09:00").split(":").map(Number);
-  const [eh, em] = (CRM_CONFIG.officeEnd   || "18:00").split(":").map(Number);
-  const nowMin = now.getHours() * 60 + now.getMinutes();
-  return nowMin >= sh * 60 + sm && nowMin < eh * 60 + em;
-}
-
-function isBreakTimeNow() {
-  const now = new Date();
-  const nowMin = now.getHours() * 60 + now.getMinutes();
-  return (CRM_CONFIG.breakTimings || []).some(b => {
-    const [sh, sm] = (b.start || "00:00").split(":").map(Number);
-    const [eh, em] = (b.end   || "00:00").split(":").map(Number);
-    return nowMin >= sh * 60 + sm && nowMin < eh * 60 + em;
-  });
-}
-
-function isHolidayToday() {
-  const t = new Date();
-  const todayStr = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,"0")}-${String(t.getDate()).padStart(2,"0")}`;
-  return (CRM_CONFIG.holidays || []).some(h => {
-    if (!h.date) return false;
-    return h.recurring ? h.date.slice(5) === todayStr.slice(5) : h.date === todayStr;
-  });
-}
-
-function shouldSuppressReminders() {
-  return isHolidayToday() || isBreakTimeNow() || !isOfficeHoursNow();
-}
-
-// =============================================================
-//  SETTINGS PAGE RENDERER
-//  • Super Admin  → fully editable, Save + Reset buttons shown
-//  • Admin/Member → read-only (all inputs disabled), buttons hidden
-// =============================================================
-
-function renderCRMSettingsView() {
-  const wrap = document.getElementById("view-crmsettings");
-  if (!wrap) return;
-
-  const isSA       = CURRENT_USER.role === "superadmin";
-  const isReadOnly = !isSA;          // Admin and Member both see read-only
-  const ro         = isReadOnly ? "disabled" : "";   // HTML attribute string
-
-  const g  = CRM_CONFIG;
-  const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
-
-  // ── Page header ─────────────────────────────────────────────
-  wrap.innerHTML = `
-  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
-    <div>
-      <h1 class="page-title"><i class="bi bi-gear-fill me-2"></i>CRM Settings</h1>
-      <p class="page-subtitle">
-        ${isSA
-          ? "All business rules. Changes take effect for every user in real time."
-          : "Current CRM configuration — read-only for your role."}
-      </p>
-    </div>
-    ${isSA ? `
-    <div class="d-flex gap-2">
-      <button class="btn btn-brand" onclick="saveAllCRMSettings()">
-        <i class="bi bi-floppy-fill me-1"></i>Save All Settings
-      </button>
-    </div>` : `
-    <span class="badge crm-readonly-badge">
-      <i class="bi bi-lock-fill me-1"></i>Read-only — ${ROLE_LABELS[CURRENT_USER.role] || CURRENT_USER.role}
-    </span>`}
-  </div>
-
-  ${isReadOnly ? `
-  <div class="alert crm-readonly-alert mb-4" role="alert">
-    <i class="bi bi-info-circle-fill me-2"></i>
-    These settings are managed by the Super Admin. You can view all values but cannot modify them.
-  </div>` : ""}
-
-  <div class="row g-4">
-    <div class="col-12 col-xl-6">
-      ${_card("bi-calendar-week", "Working Days",   _sectionWorkingDays(DAYS, g, ro))}
-      ${_card("bi-clock",         "Office Hours",   _sectionOfficeHours(g, ro))}
-      ${_card("bi-cup-hot",       "Break Timings",  _sectionBreaks(g, ro, isSA))}
-      ${_card("bi-calendar-x",    "Holidays",       _sectionHolidays(g, ro, isSA))}
-      ${_card("bi-globe",         "System Settings",_sectionSystem(g, ro))}
-    </div>
-    <div class="col-12 col-xl-6">
-      ${_card("bi-arrow-repeat",  "Follow-up Settings",    _sectionFollowUp(g, ro))}
-      ${_card("bi-telephone-x",   "Not Picking Call Rule", _sectionNotPicking(g, ro))}
-      ${_card("bi-toggles",       "Auto Status Rules",     _sectionAutoStatus(g, ro))}
-      ${_card("bi-bell",          "Notification Settings", _sectionNotifications(g, ro))}
-      ${_card("bi-robot",         "AI Defaults (Global)",  _sectionAIDefaults(g, ro))}
-    </div>
-  </div>
-
-  ${isSA ? `
-  <div class="mt-4 d-flex gap-2">
-    <button class="btn btn-brand btn-lg" onclick="saveAllCRMSettings()">
-      <i class="bi bi-floppy-fill me-1"></i>Save All Settings
-    </button>
-    <button class="btn btn-outline-secondary btn-lg" onclick="renderCRMSettingsView()">
-      <i class="bi bi-arrow-counterclockwise me-1"></i>Discard Changes
-    </button>
-  </div>` : ""}`;
-}
-
-// ── Section builders (each returns an HTML string) ───────────
-
-function _card(icon, title, body) {
+// ── GROQ ─────────────────────────────────────────────────────
+function _sectionGroq(ud) {
   return `
-  <div class="crm-settings-card mb-4">
-    <div class="crm-settings-card-header"><i class="bi ${icon} me-2"></i>${title}</div>
-    <div class="crm-settings-card-body">${body}</div>
-  </div>`;
-}
-
-function _sectionWorkingDays(DAYS, g, ro) {
-  return `
-  <div class="crm-day-grid">
-    ${DAYS.map(d => `
-    <label class="crm-day-chip ${ro ? "crm-day-chip-ro" : ""}">
-      <input type="checkbox" id="wd_${d}" ${(g.workingDays||[]).includes(d) ? "checked" : ""} ${ro}>
-      <span>${d.slice(0,3)}</span>
-    </label>`).join("")}
-  </div>`;
-}
-
-function _sectionOfficeHours(g, ro) {
-  return `
-  <div class="row g-3">
-    <div class="col-6">
-      <label class="form-label small fw-semibold">Start Time</label>
-      <input type="time" id="cfg_officeStart" class="form-control" value="${g.officeStart||'09:00'}" ${ro}>
+  <div class="settings-section">
+    <div class="settings-head">
+      <h3>Groq API Key <span class="badge-free">FREE</span></h3>
+      <p>14,400 requests/day - no credit card needed. Get yours at console.groq.com/keys</p>
     </div>
-    <div class="col-6">
-      <label class="form-label small fw-semibold">End Time</label>
-      <input type="time" id="cfg_officeEnd" class="form-control" value="${g.officeEnd||'18:00'}" ${ro}>
+    <div class="settings-body">
+      <div class="info-box info-box-green">
+        <strong>How to get your free Groq key (2 min):</strong>
+        1. Go to <a href="https://console.groq.com/keys" target="_blank" style="color:#065f46;font-weight:700">console.groq.com/keys</a><br/>
+        2. Sign up with Google (no credit card)<br/>
+        3. Click "Create New Key" and copy it (starts with gsk_)<br/>
+        4. Paste below and click Save
+      </div>
+      <div id="groq-alert" class="alert alert-danger" style="display:none"></div>
+      <div id="groq-ok"    class="alert alert-success" style="display:none"></div>
+      <div class="form-row">
+        <label>Groq API Key</label>
+        <div class="api-row">
+          <input type="password" id="s-groq-key" placeholder="gsk_..." value="${safeStr(ud.apiKey)}"/>
+          <button class="btn btn-outline btn-sm" onclick="window.Settings.toggleKey('s-groq-key', this)">Show</button>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="window.Settings.saveKey('groq')">Save Groq Key</button>
     </div>
   </div>`;
 }
 
-function _sectionBreaks(g, ro, isSA) {
-  const rows = (g.breakTimings || []).map(b => `
-  <div class="crm-list-row" id="breakRow_${b.id}">
-    <input type="text" class="form-control form-control-sm" placeholder="Break name"
-           id="brk_name_${b.id}" value="${escapeHtml(b.name)}" ${ro}>
-    <input type="time" class="form-control form-control-sm" id="brk_start_${b.id}" value="${b.start}" ${ro}>
-    <span class="text-muted small">to</span>
-    <input type="time" class="form-control form-control-sm" id="brk_end_${b.id}" value="${b.end}" ${ro}>
-    ${isSA ? `<button class="btn btn-sm btn-outline-danger" onclick="deleteBreakRow('${b.id}')">
-      <i class="bi bi-trash"></i></button>` : ""}
-  </div>`).join("") || `<p class="text-muted small mb-2">No breaks configured.</p>`;
-  return rows + (isSA ? `
-  <button class="btn btn-sm btn-outline-primary mt-2" onclick="addBreakRow()">
-    <i class="bi bi-plus-lg me-1"></i>Add Break
-  </button>` : "");
-}
-
-function _sectionHolidays(g, ro, isSA) {
-  const rows = (g.holidays || []).map(h => `
-  <div class="crm-list-row" id="holRow_${h.id}">
-    <input type="text" class="form-control form-control-sm" placeholder="Holiday name"
-           id="hol_name_${h.id}" value="${escapeHtml(h.name)}" ${ro}>
-    <input type="date" class="form-control form-control-sm" id="hol_date_${h.id}" value="${h.date}" ${ro}>
-    <select class="form-select form-select-sm" id="hol_type_${h.id}" ${ro}>
-      ${["National","Regional","Company"].map(t => `<option ${t===h.type?"selected":""}>${t}</option>`).join("")}
-    </select>
-    <div class="form-check form-switch mb-0 ms-1">
-      <input class="form-check-input" type="checkbox" role="switch"
-             id="hol_rec_${h.id}" title="Recurring" ${h.recurring?"checked":""} ${ro}>
-      <label class="form-check-label small" for="hol_rec_${h.id}">Recurring</label>
-    </div>
-    ${isSA ? `<button class="btn btn-sm btn-outline-danger" onclick="deleteHolidayRow('${h.id}')">
-      <i class="bi bi-trash"></i></button>` : ""}
-  </div>`).join("") || `<p class="text-muted small mb-2">No holidays configured.</p>`;
-  return rows + (isSA ? `
-  <button class="btn btn-sm btn-outline-primary mt-2" onclick="addHolidayRow()">
-    <i class="bi bi-plus-lg me-1"></i>Add Holiday
-  </button>` : "");
-}
-
-function _sectionSystem(g, ro) {
-  const _sel = (id, opts, val) =>
-    `<select id="${id}" class="form-select form-select-sm" ${ro}>
-      ${opts.map(o => `<option ${o===val?"selected":""}>${o}</option>`).join("")}
-    </select>`;
+// ── GEMINI ────────────────────────────────────────────────────
+function _sectionGemini(ud) {
   return `
-  <div class="row g-3">
-    <div class="col-6">
-      <label class="form-label small fw-semibold">Timezone</label>
-      ${_sel("cfg_timezone",["Asia/Kolkata","Asia/Dubai","Europe/London","America/New_York","America/Los_Angeles","Asia/Singapore","Asia/Tokyo"], g.timezone)}
+  <div class="settings-section">
+    <div class="settings-head">
+      <h3>Google Gemini API Key</h3>
+      <p>Get yours at aistudio.google.com/app/apikey - free tier available</p>
     </div>
-    <div class="col-6">
-      <label class="form-label small fw-semibold">Date Format</label>
-      ${_sel("cfg_dateFormat",["DD MMM YYYY","MM/DD/YYYY","YYYY-MM-DD","DD/MM/YYYY"], g.dateFormat)}
-    </div>
-    <div class="col-6">
-      <label class="form-label small fw-semibold">Time Format</label>
-      <select id="cfg_timeFormat" class="form-select form-select-sm" ${ro}>
-        <option value="12h" ${g.timeFormat==="12h"?"selected":""}>12-hour (AM/PM)</option>
-        <option value="24h" ${g.timeFormat==="24h"?"selected":""}>24-hour</option>
-      </select>
-    </div>
-    <div class="col-6">
-      <label class="form-label small fw-semibold">Currency</label>
-      ${_sel("cfg_currency",["INR","USD","EUR","GBP","AED","SGD"], g.currency)}
+    <div class="settings-body">
+      <div id="gemini-alert" class="alert alert-danger" style="display:none"></div>
+      <div id="gemini-ok"    class="alert alert-success" style="display:none"></div>
+      <div class="form-row">
+        <label>Gemini API Key</label>
+        <div class="api-row">
+          <input type="password" id="s-gemini-key" placeholder="Enter Gemini API key" value="${safeStr(ud.geminiKey)}"/>
+          <button class="btn btn-outline btn-sm" onclick="window.Settings.toggleKey('s-gemini-key', this)">Show</button>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="window.Settings.saveKey('gemini')">Save Gemini Key</button>
     </div>
   </div>`;
 }
 
-function _sectionFollowUp(g, ro) {
-  const _opt = (vals, cur) => vals.map(m =>
-    `<option value="${m}" ${m==cur?"selected":""}>${m<60?m+" min":m/60+" hr"}</option>`).join("");
+// ── OPENROUTER ────────────────────────────────────────────────
+function _sectionOpenRouter(ud) {
   return `
-  <div class="row g-3">
-    <div class="col-6">
-      <label class="form-label small fw-semibold">First Reminder After</label>
-      <select id="cfg_reminderAfter" class="form-select form-select-sm" ${ro}>
-        ${_opt([15,30,45,60,120], g.reminderAfterMinutes)}
-      </select>
+  <div class="settings-section">
+    <div class="settings-head">
+      <h3>OpenRouter API Key</h3>
+      <p>Access 200+ AI models via openrouter.ai - free credits available</p>
     </div>
-    <div class="col-6">
-      <label class="form-label small fw-semibold">Reminder Frequency</label>
-      <select id="cfg_reminderFreq" class="form-select form-select-sm" ${ro}>
-        ${[15,30,45,60].map(m=>`<option value="${m}" ${m==g.reminderFreqMinutes?"selected":""}>${m} min</option>`).join("")}
-      </select>
-    </div>
-    <div class="col-6">
-      <label class="form-label small fw-semibold">Uncontacted Alert After</label>
-      <select id="cfg_uncontactedAlert" class="form-select form-select-sm" ${ro}>
-        ${_opt([15,30,45,60,120], g.uncontactedAlertMinutes)}
-      </select>
-    </div>
-    <div class="col-6">
-      <label class="form-label small fw-semibold">Max Reminder Count</label>
-      <input type="number" id="cfg_maxReminder" class="form-control form-control-sm"
-             min="1" max="20" value="${g.maxReminderCount||5}" ${ro}>
-    </div>
-    <div class="col-6">
-      <label class="form-label small fw-semibold">Assignment Interval</label>
-      <select id="cfg_assignInterval" class="form-select form-select-sm" ${ro}>
-        ${[10,15,20,30,45,60].map(m=>
-          `<option value="${m}" ${m==(g.assignmentIntervalMinutes||30)?"selected":""}>${m} min</option>`
-        ).join("")}
-      </select>
-    </div>
-    <div class="col-6">
-      <label class="form-label small fw-semibold">Lunch Start (Half-day boundary)</label>
-      <input type="time" id="cfg_lunchStart" class="form-control form-control-sm"
-             value="${g.lunchStart||'13:00'}" ${ro}>
+    <div class="settings-body">
+      <div id="or-alert" class="alert alert-danger" style="display:none"></div>
+      <div id="or-ok"    class="alert alert-success" style="display:none"></div>
+      <div class="form-row">
+        <label>OpenRouter API Key</label>
+        <div class="api-row">
+          <input type="password" id="s-or-key" placeholder="sk-or-..." value="${safeStr(ud.openrouterKey)}"/>
+          <button class="btn btn-outline btn-sm" onclick="window.Settings.toggleKey('s-or-key', this)">Show</button>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="window.Settings.saveKey('openrouter')">Save OpenRouter Key</button>
     </div>
   </div>`;
 }
 
-function _sectionNotPicking(g, ro) {
+// ── GOOGLE APIS (ADMIN ONLY) ──────────────────────────────────
+function _sectionGoogleApis(pageSpeedKey, lastUpdated) {
+  const maskedKey = pageSpeedKey 
+    ? '*'.repeat(Math.max(0, pageSpeedKey.length - 4)) + pageSpeedKey.slice(-4)
+    : '';
+  const isConnected = pageSpeedKey.length > 0;
+  
   return `
-  <label class="form-label small fw-semibold">Maximum Consecutive Not Picking Call Attempts</label>
-  <div class="d-flex align-items-center gap-3 mt-1">
-    <input type="number" id="cfg_maxConsecutiveAttempts" class="form-control"
-           style="max-width:100px" min="1" max="20" value="${g.maxConsecutiveNotPickingAttempts||3}" ${ro}>
-    <span class="text-muted small">After this count of consecutive attempts with no answer, status becomes <strong>No Response</strong>.</span>
-  </div>`;
-}
-
-function _toggle(id, label, checked, ro) {
-  return `
-  <div class="d-flex justify-content-between align-items-center crm-toggle-row">
-    <span class="crm-toggle-label">${label}</span>
-    <div class="form-check form-switch mb-0">
-      <input class="form-check-input crm-toggle-input" type="checkbox" role="switch"
-             id="${id}" ${checked ? "checked" : ""} ${ro}>
+  <div class="settings-section admin-only">
+    <div class="settings-head">
+      <h3>Google APIs <span class="badge-admin">ADMIN ONLY</span></h3>
+      <p>Configure Google services for advanced features</p>
+    </div>
+    <div class="settings-body">
+      <div class="info-box info-box-orange">
+        <strong>Administrator Configuration</strong><br/>
+        Only administrators can configure these API keys. Regular users can use the features once configured.
+      </div>
+      
+      <h4 style="margin-top:1.5rem;margin-bottom:.75rem">Google PageSpeed Insights API Key</h4>
+      <div class="info-box info-box-green">
+        <strong>How to get your PageSpeed API key:</strong><br/>
+        1. Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:#065f46;font-weight:700">Google Cloud Console</a><br/>
+        2. Create a new project or select an existing one<br/>
+        3. Enable the PageSpeed Insights API<br/>
+        4. Create credentials (API Key)<br/>
+        5. Copy the key and paste below
+      </div>
+      
+      <div id="ps-alert" class="alert alert-danger" style="display:none"></div>
+      <div id="ps-ok" class="alert alert-success" style="display:none"></div>
+      
+      <div class="form-row">
+        <label>Google PageSpeed Insights API Key</label>
+        <div class="api-row">
+          <input type="password" id="s-ps-key" placeholder="AIza..." value="${safeStr(pageSpeedKey)}"/>
+          <button class="btn btn-outline btn-sm" onclick="window.Settings.toggleKey('s-ps-key', this)">
+            ${pageSpeedKey ? 'Show' : 'Show'}
+          </button>
+        </div>
+      </div>
+      
+      <div style="display:flex;align-items:center;gap:.75rem;margin-top:.75rem;margin-bottom:.75rem">
+        <button class="btn btn-primary" onclick="window.Settings.savePageSpeedKey()">Save API Key</button>
+        ${pageSpeedKey ? `<button class="btn btn-outline btn-sm" onclick="window.Settings.testPageSpeedKey()">Test Connection</button>` : ''}
+      </div>
+      
+      <div class="ps-status-row" style="display:flex;align-items:center;gap:.5rem;font-size:.85rem;margin-top:.5rem">
+        <span style="font-weight:600">Status:</span>
+        <span style="display:flex;align-items:center;gap:.25rem">
+          ${isConnected 
+            ? '<span style="color:#10b981">●</span> <span style="color:#10b981">Connected</span>' 
+            : '<span style="color:#94a3b8">●</span> <span style="color:#94a3b8">Not Configured</span>'}
+        </span>
+        ${lastUpdated ? `<span style="color:var(--text3)">• Last Updated: ${lastUpdated}</span>` : ''}
+      </div>
     </div>
   </div>`;
 }
 
-function _sectionAutoStatus(g, ro) {
+// ── PREFERENCES ───────────────────────────────────────────────
+function _sectionPreferences(ud) {
+  const themes    = ['light','dark','system'];
+  const providers = [
+    { val: 'groq',        label: 'Groq' },
+    { val: 'gemini',      label: 'Gemini' },
+    { val: 'openrouter',  label: 'OpenRouter' }
+  ];
+  const themeHtml = themes.map(t => `
+    <button class="theme-opt ${ud.theme === t ? 'active' : ''}" data-theme="${t}" onclick="window.Settings.setTheme('${t}', this)">
+      ${t.charAt(0).toUpperCase() + t.slice(1)}
+    </button>`).join('');
+  const provHtml = providers.map(p => `
+    <button class="provider-opt ${ud.defaultProvider === p.val ? 'active' : ''}" data-prov="${p.val}" onclick="window.Settings.setProvider('${p.val}', this)">
+      ${p.label}
+    </button>`).join('');
+
   return `
-  <div class="d-flex flex-column gap-3">
-    ${_toggle("cfg_autoMoveNoResponse", "Auto Move to No Response", g.autoMoveToNoResponse, ro)}
-    ${_toggle("cfg_autoFollowUp",  "Auto Follow-up Scheduling",   g.autoFollowUp,          ro)}
-    ${_toggle("cfg_autoReminder",  "Auto Reminder Toasts",        g.autoReminder,          ro)}
-    ${_toggle("cfg_autoEscalation","Auto Escalation to Admin",    g.autoEscalation,        ro)}
+  <div class="settings-section">
+    <div class="settings-head">
+      <h3>Preferences</h3>
+      <p>Theme, language, default AI provider and generation settings</p>
+    </div>
+    <div class="settings-body">
+      <div class="form-row">
+        <label>Theme</label>
+        <div class="theme-row">${themeHtml}</div>
+      </div>
+      <div class="form-row">
+        <label>Default AI Provider</label>
+        <div class="provider-row" id="prov-row">${provHtml}</div>
+      </div>
+      <div class="form-row">
+        <label>Default Language</label>
+        <select id="s-lang" onchange="window.Settings.savePref()">
+          <option value="en"  ${ud.language === 'en'  ? 'selected' : ''}>English</option>
+          <option value="hi"  ${ud.language === 'hi'  ? 'selected' : ''}>Hindi</option>
+          <option value="te"  ${ud.language === 'te'  ? 'selected' : ''}>Telugu</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Temperature (creativity) — ${ud.temperature ?? 0.9}</label>
+        <input type="range" id="s-temp" min="0.1" max="1.5" step="0.1" value="${ud.temperature ?? 0.9}"
+               style="width:100%" oninput="document.querySelector('[for=s-temp]') && (document.querySelector('[for=s-temp]').textContent = 'Temperature: '+this.value)"/>
+      </div>
+      <div class="form-row">
+        <label>Max Tokens</label>
+        <select id="s-tokens">
+          <option value="800"  ${ud.maxTokens === 800  ? 'selected' : ''}>800 (Fast)</option>
+          <option value="1200" ${ud.maxTokens === 1200 ? 'selected' : ''}>1200</option>
+          <option value="1600" ${!ud.maxTokens || ud.maxTokens === 1600 ? 'selected' : ''}>1600 (Recommended)</option>
+          <option value="2000" ${ud.maxTokens === 2000 ? 'selected' : ''}>2000 (Detailed)</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" onclick="window.Settings.savePref()">Save Preferences</button>
+    </div>
   </div>`;
 }
 
-function _sectionNotifications(g, ro) {
+// ── PROFILE ───────────────────────────────────────────────────
+function _sectionProfile(ud) {
   return `
-  <div class="d-flex flex-column gap-3">
-    ${_toggle("cfg_notifBrowser",  "Browser Notifications", g.browserNotifications, ro)}
-    ${_toggle("cfg_notifToast",    "Toast Notifications",   g.toastNotifications,   ro)}
-    ${_toggle("cfg_notifSound",    "Sound Alerts",          g.soundAlerts,          ro)}
-    ${_toggle("cfg_notifWhatsapp", "WhatsApp Alerts",       g.whatsappAlerts,       ro)}
-    ${_toggle("cfg_notifEmail",    "Email Alerts",          g.emailAlerts,          ro)}
-  </div>`;
-}
-
-function _sectionAIDefaults(g, ro) {
-  return `
-  <p class="small text-muted mb-3">Users can override these in their own AI Settings.</p>
-  <div class="row g-3">
-    <div class="col-6">
-      <label class="form-label small fw-semibold">Default Model</label>
-      <select id="cfg_aiModel" class="form-select form-select-sm" ${ro}>
-        ${["llama-3.3-70b-versatile","llama-3.1-8b-instant","deepseek-r1-distill-llama-70b"]
-          .map(m=>`<option ${m===g.aiModel?"selected":""}>${m}</option>`).join("")}
-      </select>
-    </div>
-    <div class="col-3">
-      <label class="form-label small fw-semibold">Temperature</label>
-      <input type="number" id="cfg_aiTemp" class="form-control form-control-sm"
-             min="0" max="2" step="0.05" value="${g.aiTemperature||0.75}" ${ro}>
-    </div>
-    <div class="col-3">
-      <label class="form-label small fw-semibold">Max Tokens</label>
-      <input type="number" id="cfg_aiTokens" class="form-control form-control-sm"
-             min="100" max="8000" step="100" value="${g.aiMaxTokens||1200}" ${ro}>
+  <div class="settings-section">
+    <div class="settings-head"><h3>Profile</h3><p>Update your display name</p></div>
+    <div class="settings-body">
+      <div class="form-row"><label>Display Name</label><input type="text" id="s-name" value="${safeStr(ud.name)}"/></div>
+      <div class="form-row"><label>Email</label><input type="email" id="s-email" value="${safeStr(ud.email)}" disabled/></div>
+      <button class="btn btn-primary" onclick="window.Settings.saveProfile()">Update Profile</button>
     </div>
   </div>`;
 }
 
-// ── Add / Delete rows (Super Admin only — called from onclick) ─
-
-function addBreakRow() {
-  const id = "br_" + Date.now();
-  CRM_CONFIG.breakTimings.push({ id, name: "", start: "12:00", end: "12:30" });
-  document.getElementById("breaksContainer") &&
-    (document.getElementById("breaksContainer").innerHTML =
-      _sectionBreaks(CRM_CONFIG, "", true));
-  renderCRMSettingsView(); // full re-render to keep ids consistent
+// ── FIREBASE STATUS ───────────────────────────────────────────
+function _sectionFirebase() {
+  return `
+  <div class="settings-section">
+    <div class="settings-head"><h3>Firebase Status</h3><p>Your data syncs to Firebase cloud</p></div>
+    <div class="settings-body">
+      <div class="info-box info-box-orange">
+        <strong>Connected: abra-zylo-seo</strong>
+        All SEO generations are saved to Firestore and synced across devices.<br/>
+        Manage at <a href="https://console.firebase.google.com/project/abra-zylo-seo" target="_blank" style="color:#9a3412;font-weight:600">console.firebase.google.com</a>
+      </div>
+      <div id="firebase-status" style="font-size:.83rem;color:var(--text2)">Connected</div>
+    </div>
+  </div>`;
 }
 
-function deleteBreakRow(id) {
-  CRM_CONFIG.breakTimings = (CRM_CONFIG.breakTimings || []).filter(b => b.id !== id);
-  renderCRMSettingsView();
+// ── DATA ─────────────────────────────────────────────────────
+function _sectionData() {
+  return `
+  <div class="settings-section">
+    <div class="settings-head"><h3>Data Management</h3><p>Export or clear your generation history</p></div>
+    <div class="settings-body" style="display:flex;gap:.5rem;flex-wrap:wrap">
+      <button class="btn btn-outline btn-sm" onclick="window.History.exportJSON()">Export History (JSON)</button>
+      <button class="btn btn-danger btn-sm admin-only" onclick="window.History.clearAll()">Clear All History</button>
+    </div>
+  </div>`;
 }
 
-function addHolidayRow() {
-  const id = "hol_" + Date.now();
-  CRM_CONFIG.holidays.push({ id, name: "", date: new Date().toISOString().slice(0,10),
-                              type: "National", recurring: false });
-  renderCRMSettingsView();
+// ── ACTIONS ───────────────────────────────────────────────────
+export function toggleKey(inputId, btn) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  input.type = input.type === 'password' ? 'text' : 'password';
+  btn.textContent = input.type === 'password' ? 'Show' : 'Hide';
 }
 
-function deleteHolidayRow(id) {
-  CRM_CONFIG.holidays = (CRM_CONFIG.holidays || []).filter(h => h.id !== id);
-  renderCRMSettingsView();
-}
+export async function saveKey(provider) {
+  const idMap   = { groq: 's-groq-key', gemini: 's-gemini-key', openrouter: 's-or-key' };
+  const alertId = { groq: 'groq-alert', gemini: 'gemini-alert', openrouter: 'or-alert' };
+  const okId    = { groq: 'groq-ok',    gemini: 'gemini-ok',    openrouter: 'or-ok' };
+  const fieldMap = { groq: 'apiKey', gemini: 'geminiKey', openrouter: 'openrouterKey' };
 
-// ── Save (Super Admin only) ───────────────────────────────────
-async function saveAllCRMSettings() {
-  // Hard guard — Firestore rules enforce this server-side too
-  if (CURRENT_USER.role !== "superadmin") {
-    toast("Permission denied.", "danger");
+  const key = (document.getElementById(idMap[provider])?.value || '').trim();
+  const aEl = document.getElementById(alertId[provider]);
+  const oEl = document.getElementById(okId[provider]);
+  if (aEl) aEl.style.display = 'none';
+  if (oEl) oEl.style.display = 'none';
+
+  if (!key) {
+    if (aEl) { aEl.textContent = provider === 'gemini' ? 'Please enter your Gemini API key.' : 'Please enter an API key.'; aEl.style.display = 'block'; }
+    return;
+  }
+  if (provider === 'groq' && !key.startsWith('gsk_')) {
+    if (aEl) { aEl.textContent = 'Groq keys start with gsk_. Check your key.'; aEl.style.display = 'block'; }
     return;
   }
 
-  const btns = document.querySelectorAll('[onclick="saveAllCRMSettings()"]');
-  btns.forEach(b => { b.disabled = true; b.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving…'; });
+  if (provider === 'gemini') {
+    try {
+      await verifyGeminiKey(key);
+    } catch (err) {
+      const message = String(err?.message || err || 'Unable to authenticate with Gemini. Please check your API key.');
+      if (aEl) { aEl.textContent = message; aEl.style.display = 'block'; }
+      console.error('[Settings] Gemini validation failed:', message);
+      return;
+    }
+  }
 
-  try {
-    const workingDays = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
-      .filter(d => document.getElementById("wd_"+d)?.checked);
+  await updateUserField({ [fieldMap[provider]]: key });
+  if (oEl) { oEl.textContent = `${provider.charAt(0).toUpperCase() + provider.slice(1)} key saved!`; oEl.style.display = 'block'; }
+  showToast(`${provider} API key saved.`);
+  setTimeout(() => { if (oEl) oEl.style.display = 'none'; }, 3000);
+}
 
-    // Collect breaks from live DOM inputs
-    const breakTimings = (CRM_CONFIG.breakTimings || []).map(b => ({
-      id:    b.id,
-      name:  document.getElementById("brk_name_"+b.id)?.value.trim()  ?? b.name,
-      start: document.getElementById("brk_start_"+b.id)?.value        ?? b.start,
-      end:   document.getElementById("brk_end_"+b.id)?.value          ?? b.end,
-    }));
+export function setTheme(theme, btn) {
+  document.querySelectorAll('.theme-opt').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  applyTheme(theme);
+  updateUserField({ theme });
+}
 
-    // Collect holidays from live DOM inputs
-    const holidays = (CRM_CONFIG.holidays || []).map(h => ({
-      id:        h.id,
-      name:      document.getElementById("hol_name_"+h.id)?.value.trim() ?? h.name,
-      date:      document.getElementById("hol_date_"+h.id)?.value        ?? h.date,
-      type:      document.getElementById("hol_type_"+h.id)?.value        ?? h.type,
-      recurring: document.getElementById("hol_rec_"+h.id)?.checked       ?? h.recurring,
-    }));
+export function setProvider(prov, btn) {
+  document.querySelectorAll('.provider-opt').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const sel = document.getElementById('prod-provider');
+  if (sel) sel.value = prov;
+  updateUserField({ defaultProvider: prov });
+  const tag = document.getElementById('sidebar-ai-model');
+  if (tag) tag.textContent = prov === 'groq' ? 'Llama 3.3 70B' : prov === 'gemini' ? 'Gemini Flash' : 'OpenRouter';
+}
 
-    const payload = {
-      workingDays,
-      officeStart:  document.getElementById("cfg_officeStart")?.value     || "09:00",
-      officeEnd:    document.getElementById("cfg_officeEnd")?.value       || "18:00",
-      breakTimings,
-      holidays,
-      uncontactedAlertMinutes: parseInt(document.getElementById("cfg_uncontactedAlert")?.value) || 30,
-      reminderAfterMinutes:    parseInt(document.getElementById("cfg_reminderAfter")?.value)    || 30,
-      reminderFreqMinutes:     parseInt(document.getElementById("cfg_reminderFreq")?.value)     || 30,
-      maxReminderCount:        parseInt(document.getElementById("cfg_maxReminder")?.value)      || 5,
-      maxConsecutiveNotPickingAttempts: parseInt(document.getElementById("cfg_maxConsecutiveAttempts")?.value) || 3,
-      assignmentIntervalMinutes: parseInt(document.getElementById("cfg_assignInterval")?.value) || 30,
-      lunchStart:              document.getElementById("cfg_lunchStart")?.value                  || "13:00",
-      autoMoveToNoResponse:    document.getElementById("cfg_autoMoveNoResponse")?.checked ?? true,
-      autoFollowUp:            document.getElementById("cfg_autoFollowUp")?.checked    ?? true,
-      autoReminder:            document.getElementById("cfg_autoReminder")?.checked    ?? true,
-      autoEscalation:          document.getElementById("cfg_autoEscalation")?.checked  ?? false,
-      browserNotifications:    document.getElementById("cfg_notifBrowser")?.checked    ?? true,
-      toastNotifications:      document.getElementById("cfg_notifToast")?.checked      ?? true,
-      soundAlerts:             document.getElementById("cfg_notifSound")?.checked      ?? false,
-      whatsappAlerts:          document.getElementById("cfg_notifWhatsapp")?.checked   ?? false,
-      emailAlerts:             document.getElementById("cfg_notifEmail")?.checked      ?? false,
-      aiProvider:    "Groq",
-      aiModel:       document.getElementById("cfg_aiModel")?.value   || "llama-3.3-70b-versatile",
-      aiTemperature: parseFloat(document.getElementById("cfg_aiTemp")?.value)    || 0.75,
-      aiMaxTokens:   parseInt(document.getElementById("cfg_aiTokens")?.value)    || 1200,
-      timezone:      document.getElementById("cfg_timezone")?.value   || "Asia/Kolkata",
-      dateFormat:    document.getElementById("cfg_dateFormat")?.value || "DD MMM YYYY",
-      timeFormat:    document.getElementById("cfg_timeFormat")?.value || "12h",
-      currency:      document.getElementById("cfg_currency")?.value   || "INR",
-    };
+export async function savePref() {
+  const lang   = document.getElementById('s-lang')?.value   || 'en';
+  const temp   = parseFloat(document.getElementById('s-temp')?.value || '0.9');
+  const tokens = parseInt(document.getElementById('s-tokens')?.value || '1600', 10);
+  await updateUserField({ language: lang, temperature: temp, maxTokens: tokens });
+  // Sync lang switcher
+  ['en','hi','te'].forEach(l => {
+    const b = document.getElementById(`lang-${l}`);
+    if (b) b.classList.toggle('active', l === lang);
+  });
+  showToast('Preferences saved.');
+}
 
-    // Single document write — onSnapshot propagates to all users in real time
-    await CRM_SETTINGS_DOC.set(payload, { merge: true });
-    toast("Settings saved. All users will see the updated values immediately.", "success");
-  } catch (err) {
-    console.error("Save CRM settings failed:", err);
-    toast("Failed to save settings. Please try again.", "danger");
-  } finally {
-    btns.forEach(b => { b.disabled = false; b.innerHTML = '<i class="bi bi-floppy-fill me-1"></i>Save All Settings'; });
+export async function saveProfile() {
+  const name = (document.getElementById('s-name')?.value || '').trim();
+  if (!name) { showToast('Name cannot be empty.'); return; }
+  await updateUserField({ name, displayName: name });
+  document.getElementById('sidebar-name').textContent = name;
+  document.getElementById('sidebar-av').textContent   = name[0].toUpperCase();
+  showToast('Profile updated.');
+}
+
+// ── PAGESPEED API KEY (ADMIN ONLY) ───────────────────────────
+export async function savePageSpeedKey() {
+  if (!isAdmin()) {
+    showToast('Only administrators can save the PageSpeed API key.');
+    return;
+  }
+
+  const key = (document.getElementById('s-ps-key')?.value || '').trim();
+  const aEl = document.getElementById('ps-alert');
+  const oEl = document.getElementById('ps-ok');
+  if (aEl) aEl.style.display = 'none';
+  if (oEl) oEl.style.display = 'none';
+
+  if (!key) {
+    if (aEl) { aEl.textContent = 'Please enter an API key.'; aEl.style.display = 'block'; }
+    return;
+  }
+
+  // Validate the key first
+  const validation = await validateApiKey(key);
+  if (!validation.valid) {
+    if (aEl) { aEl.textContent = validation.error; aEl.style.display = 'block'; }
+    return;
+  }
+
+  // Save to Firestore
+  const saved = await savePageSpeedApiKey(key);
+  if (saved) {
+    if (oEl) { oEl.textContent = 'PageSpeed API key saved and validated!'; oEl.style.display = 'block'; }
+    showToast('PageSpeed API key saved successfully.');
+    setTimeout(() => { if (oEl) oEl.style.display = 'none'; render(); }, 2000);
+  } else {
+    if (aEl) { aEl.textContent = 'Failed to save API key.'; aEl.style.display = 'block'; }
+  }
+}
+
+export async function testPageSpeedKey() {
+  const key = await getPageSpeedApiKey();
+  if (!key) {
+    showToast('No API key configured.');
+    return;
+  }
+
+  showToast('Testing PageSpeed API key...');
+  const validation = await validateApiKey(key);
+  
+  if (validation.valid) {
+    showToast('✓ PageSpeed API key is valid and working!');
+  } else {
+    showToast('✗ API key test failed: ' + validation.error);
   }
 }

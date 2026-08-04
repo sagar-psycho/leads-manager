@@ -1,74 +1,1304 @@
-<!DOCTYPE html>
-<html lang="en">
+﻿<!DOCTYPE html>
+<html lang="en" data-theme="light">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sign In — Abra Sales CRM</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css">
-</head>
-<body class="auth-body">
+  <link rel="icon" href="abra-zylo-seo-portal.png" type="image/x-icon"/>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Abra Zylo AI SEO Generator | eCommerce Product SEO & Audit Tool</title>
 
-  <div class="auth-wrap">
-    <div class="auth-card">
-      <div class="auth-brand">
-        <div class="auth-brand-mark">AL</div>
+  <meta name="google-site-verification" content="0Vl_SSJiyYWXOKDgYkziR0znjEQlruYdOEgh5P80tl0" />
+<meta name="description" content="Abra Zylo is an AI-powered eCommerce SEO platform for product SEO generation, validation, audits, PageSpeed analysis, campaign workflows, and Meta catalog preparation."/>
+<meta name="robots" content="index, follow"/>
+<link rel="canonical" href="https://abrazylo.github.io/abra-zylo-seo-generator-main/"/>
+<meta property="og:title" content="Abra Zylo AI SEO Generator | eCommerce Product SEO & Audit Tool"/>
+<meta property="og:description" content="Explore the Abra Zylo AI SEO workflow for product SEO generation, scoring, audits, performance analysis, campaigns, and catalog preparation."/>
+<meta property="og:type" content="website"/>
+<meta property="og:url" content="https://abrazylo.github.io/abra-zylo-seo-generator-main/"/>
+<meta property="og:image" content="https://abrazylo.github.io/abra-zylo-seo-generator-main/abra-zylo-seo-portal.png"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="Abra Zylo AI SEO Generator | eCommerce Product SEO & Audit Tool"/>
+<meta name="twitter:description" content="Explore the Abra Zylo AI SEO workflow for product SEO generation, scoring, audits, performance analysis, campaigns, and catalog preparation."/>
+<meta name="twitter:image" content="https://abrazylo.github.io/abra-zylo-seo-generator-main/abra-zylo-seo-portal.png"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="css/components.css"/>
+<link rel="stylesheet" href="css/auth.css"/>
+<link rel="stylesheet" href="css/dashboard.css"/>
+<link rel="stylesheet" href="css/generate.css"/>
+<link rel="stylesheet" href="css/history.css"/>
+<link rel="stylesheet" href="css/audit.css"/>
+<link rel="stylesheet" href="css/settings.css"/>
+<link rel="stylesheet" href="css/marketing.css"/>
+<link rel="stylesheet" href="css/responsive.css"/>
+<link rel="stylesheet" href="css/landing.css"/>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Abra Zylo AI SEO Generator",
+  "applicationCategory": "BusinessApplication",
+  "operatingSystem": "Web",
+  "description": "AI-powered eCommerce SEO platform for product SEO generation, validation, audits, PageSpeed analysis, campaign workflows, and Meta catalog preparation.",
+  "url": "https://abrazylo.github.io/abra-zylo-seo-generator-main/",
+  "featureList": [
+    "AI SEO generation",
+    "SEO scoring and validation",
+    "Field-level AI regeneration",
+    "SEO audit workflows",
+    "Google PageSpeed and Lighthouse analysis",
+    "Product management",
+    "Sale campaign preparation",
+    "Meta Product Catalog workflows"
+  ]
+}
+</script>
+</head>
+<body>
+
+<!-- ═══════════════ INIT LOADING SCREEN ═══════════════
+     Shown while Firebase Auth initialises.
+     Prevents ANY page (auth or app) from flashing before
+     the auth state is confirmed. Removed by app.js.
+════════════════════════════════════════════════════════ -->
+<div id="init-screen">
+  <div class="init-logo">
+    <img src="./abra-zylo-seo-portal.png" alt="Abra Zylo AI SEO Portal" decoding="async"/>
+  </div>
+  <div class="init-spinner"></div>
+  <div class="init-message" id="init-message">Initialising secure session...</div>
+</div>
+
+<!-- ═══════════════ PUBLIC LANDING PAGE ═══════════════ -->
+<div id="page-public" class="page page-public">
+  <div class="public-shell">
+    <header class="public-header" id="public-header">
+      <a class="public-brand" href="#top" aria-label="Abra Zylo home">
+        <img src="./abra-zylo-seo-portal.png" alt="Abra Zylo logo" decoding="async"/>
+        <span>Abra Zylo <small>AI SEO</small></span>
+      </a>
+      <nav class="public-nav" id="public-nav" aria-label="Primary">
+        <a href="#platform">Platform</a>
+        <a href="#generator">SEO Generator</a>
+        <a href="#audit">SEO Audit</a>
+        <a href="#performance">Performance</a>
+        <a href="#products">Products</a>
+        <a href="#campaigns">Campaigns</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+      <div class="public-nav-actions">
+        <button class="public-mobile-toggle" type="button" onclick="window.Landing.toggleMenu()" aria-label="Open menu">☰</button>
+        <button class="public-ghost-btn" type="button" onclick="window.Landing.showAuth()">Sign In</button>
+        <button class="public-primary-btn" type="button" onclick="window.Landing.showAuth()">Launch SEO Generator →</button>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="public-hero public-reveal">
         <div>
-          <div class="auth-brand-title">Abra Logistics</div>
-          <div class="auth-brand-sub">Sales CRM</div>
+          <div class="public-eyebrow">ABRA ZYLO • AI SEO INTELLIGENCE</div>
+          <h1>Abra Zylo AI SEO Generator</h1>
+          <p>Turn eCommerce products into search-optimized experiences with AI. Abra Zylo combines product SEO generation, deterministic validation, technical audits, PageSpeed analysis, campaign preparation, and Meta catalog workflows inside one platform.</p>
+          <div class="public-hero-actions">
+            <button class="public-primary-btn" type="button" onclick="window.Landing.showAuth()">Launch SEO Generator →</button>
+            <a class="public-ghost-btn" href="#platform">Explore Platform</a>
+          </div>
+          <div class="public-trust">Powered by Groq • Google Gemini • OpenRouter</div>
+          <div class="public-metrics" aria-label="Platform highlights">
+            <span class="public-metric-pill">Meta title &amp; description generation</span>
+            <span class="public-metric-pill">Field-level AI regeneration</span>
+            <span class="public-metric-pill">98+ SEO score workflow</span>
+          </div>
+        </div>
+        <div class="public-demo" aria-label="Product SEO workflow preview">
+          <div class="public-demo-shell">
+            <div class="public-demo-top">
+              <div class="public-demo-pill">SEO Intelligence Workspace</div>
+              <div class="public-demo-toolbar"><span></span><span></span><span></span></div>
+            </div>
+            <div class="public-demo-body">
+              <div class="public-demo-card">
+                <h3>Product</h3>
+                <div class="public-demo-list">
+                  <div class="public-demo-item"><strong>Premium Wireless Earbuds</strong><em>Product image, category and context ready</em></div>
+                  <div class="public-demo-item"><strong>AI Analysis</strong><em>Product name, category and image are interpreted for SEO</em></div>
+                  <div class="public-demo-item"><strong>Meta Title</strong><em>Premium Wireless Earbuds | Abra Zylo</em></div>
+                  <div class="public-demo-item"><strong>SEO URL</strong><em>premium-wireless-earbuds</em></div>
+                </div>
+              </div>
+              <div class="public-demo-card">
+                <h3>Validation</h3>
+                <div class="public-score">
+                  <div class="public-score-value">98</div>
+                  <div class="public-score-track">
+                    <span></span><span></span><span></span><span></span>
+                  </div>
+                </div>
+                <div class="public-demo-list">
+                  <div class="public-demo-item"><strong>Meta Description</strong><em>154 / 160 characters</em></div>
+                  <div class="public-demo-item"><strong>Focus Keywords</strong><em>wireless earbuds · premium earbuds</em></div>
+                  <div class="public-demo-item"><strong>Ready to Save</strong><em>Auto-save threshold reached</em></div>
+                </div>
+              </div>
+            </div>
+            <div class="public-demo-footer">
+              <span>AI creates • Abra Zylo validates</span>
+              <span>Product SEO workflow in motion</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="public-section public-reveal">
+        <div class="public-section-card">
+          <h2>The SEO workflow in one visual journey</h2>
+          <p>Abra Zylo is not a single text generator. It is a product SEO system that moves from product input to validation, improvement, audit, campaign preparation, and catalog readiness.</p>
+          <div class="public-pipeline">
+            <div class="public-pipeline-list" role="list">
+              <button class="public-pipeline-step" type="button"><strong>Product</strong><span>Provide product information and image.</span></button>
+              <button class="public-pipeline-step" type="button"><strong>AI Analysis</strong><span>Understand context, category and intent.</span></button>
+              <button class="public-pipeline-step" type="button"><strong>SEO Generation</strong><span>Generate title, description, keywords and URL.</span></button>
+              <button class="public-pipeline-step" type="button"><strong>Validation</strong><span>Check length, relevance and structure.</span></button>
+              <button class="public-pipeline-step" type="button"><strong>Improvement</strong><span>Regenerate only weak sections.</span></button>
+              <button class="public-pipeline-step" type="button"><strong>98+ Score</strong><span>Reach the save threshold.</span></button>
+            </div>
+            <div class="public-pipeline-detail" id="pipeline-detail"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="platform" class="public-section public-reveal">
+        <div class="public-section-card">
+          <h2>One platform. The complete product SEO workflow.</h2>
+          <p>From the first product upload to SEO history, audits, performance insights, campaigns, and catalog preparation, Abra Zylo connects every stage of eCommerce SEO in a single experience.</p>
+          <div class="public-architecture" aria-label="Platform architecture">
+            <div class="public-node-card"><h3>Products</h3><p>Manage product context and images</p></div>
+            <div class="public-node-card"><h3>AI SEO Generator</h3><p>Generate foundational SEO content</p></div>
+            <div class="public-node-card"><h3>SEO Validation</h3><p>Score SEO quality before saving</p></div>
+            <div class="public-node-card"><h3>SEO History</h3><p>Track each generation version</p></div>
+            <div class="public-node-card"><h3>SEO Audit</h3><p>Check on-page SEO signals</p></div>
+            <div class="public-node-card"><h3>Performance Intelligence</h3><p>Inspect PageSpeed and Lighthouse data</p></div>
+            <div class="public-node-card"><h3>Campaigns</h3><p>Move ready products into promotions</p></div>
+            <div class="public-node-card"><h3>Meta Catalog</h3><p>Prepare catalog-ready product data</p></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="generator" class="public-section public-reveal">
+        <div class="public-section-card">
+          <h2>AI SEO generation that goes beyond writing</h2>
+          <p>The generator creates structured fields that matter for search visibility and product merchandising, including meta title, meta description, focus keywords, product description, SEO URL, tags, and supporting SEO content.</p>
+          <div class="public-editor">
+            <div class="public-editor-card">
+              <h3>SEO editor preview</h3>
+              <div class="public-editor-row"><strong>Meta Title</strong><p>Premium Wireless Earbuds With ANC | Abra Zylo</p><span class="public-status">58 / 70 characters</span></div>
+              <div class="public-editor-row"><strong>Meta Description</strong><p>Discover premium wireless earbuds with active noise cancellation, crisp audio, and a polished design that supports modern product pages.</p><span class="public-status">154 / 160 characters</span></div>
+              <div class="public-editor-row"><strong>Focus Keywords</strong><p>wireless earbuds · bluetooth earbuds · premium earbuds</p><span class="public-status">Keyword-ready</span></div>
+              <div class="public-editor-row"><strong>SEO URL</strong><p>premium-wireless-earbuds</p><span class="public-status">Slug-ready</span></div>
+            </div>
+            <div class="public-editor-card">
+              <h3>Field-level regeneration</h3>
+              <div class="public-editor-row"><strong>Meta Title</strong><p>✓ Passed</p></div>
+              <div class="public-editor-row"><strong>Meta Description</strong><p class="public-status warn">✕ Needs improvement</p></div>
+              <div class="public-editor-row"><strong>SEO URL</strong><p>✓ Passed</p></div>
+              <div class="public-editor-row"><strong>Product Description</strong><p>✓ Passed</p></div>
+              <p>The workflow can target only the weak field, update that section, and recompute the SEO score instead of regenerating the entire result.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="public-section public-reveal">
+        <div class="public-section-card">
+          <h2>SEO scoring is computed inside the platform</h2>
+          <p>Abra Zylo does not blindly trust the AI response. The portal evaluates title length, description length, keyword placement, URL quality, product description completeness, and category relevance before changing the live result.</p>
+          <div class="public-editor">
+            <div class="public-editor-card">
+              <div class="public-score-ring" aria-label="SEO score 98"></div>
+              <div class="public-legend">
+                <span>Meta title optimization</span>
+                <span>Meta description optimization</span>
+                <span>Keyword usage</span>
+                <span>SEO URL quality</span>
+                <span>Product description quality</span>
+              </div>
+            </div>
+            <div class="public-editor-card">
+              <h3>Optimize until it is ready</h3>
+              <div class="public-steps">
+                <div class="public-step"><div class="public-step-index">1</div><div><strong>Initial Generation</strong><p>Score 74</p></div></div>
+                <div class="public-step"><div class="public-step-index">2</div><div><strong>AI Improvement</strong><p>Score 86</p></div></div>
+                <div class="public-step"><div class="public-step-index">3</div><div><strong>Targeted Optimization</strong><p>Score 94</p></div></div>
+                <div class="public-step"><div class="public-step-index">4</div><div><strong>Final Validation</strong><p>Score 98 • auto-save ready</p></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="public-section public-reveal">
+        <div class="public-section-card">
+          <h2>One SEO platform. Multiple AI engines.</h2>
+          <p>The workflow can be configured around Groq, Google Gemini, or OpenRouter so the user is not locked into a single provider.</p>
+          <div class="public-grid-3">
+            <div class="public-stack-card"><h3>Groq</h3><p>Configured through the existing provider selection and settings workflow.</p></div>
+            <div class="public-stack-card"><h3>Google Gemini</h3><p>Available as an alternative provider in the portal settings.</p></div>
+            <div class="public-stack-card"><h3>OpenRouter</h3><p>Supports the same SEO generation experience through the app layer.</p></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="products" class="public-section public-reveal">
+        <div class="public-section-card">
+          <h2>Your product SEO command center</h2>
+          <p>The portal includes a product management layer for creating and organizing products, tracking SEO generation status, reviewing product details, and preparing products for campaigns or Meta catalog workflows.</p>
+          <div class="public-grid-2">
+            <div class="public-mini-card">
+              <h3>Product management</h3>
+              <ul class="public-list">
+                <li>Upload product image and manage metadata</li>
+                <li>Track model numbers and pricing context</li>
+                <li>Reuse products across SEO and marketing flows</li>
+              </ul>
+            </div>
+            <div class="public-mini-card">
+              <h3>SEO history</h3>
+              <ul class="public-list">
+                <li>Inspect generated versions by product</li>
+                <li>Track language, provider and date</li>
+                <li>Compare prior SEO output over time</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="audit" class="public-section public-reveal">
+        <div class="public-section-card">
+          <h2>Audit before you optimize</h2>
+          <p>Abra Zylo includes an on-page SEO checker and a performance audit experience backed by Google PageSpeed Insights and Lighthouse data.</p>
+          <div class="public-grid-2">
+            <div class="public-mini-card">
+              <h3>SEO audit workflow</h3>
+              <ul class="public-list">
+                <li>Score page title and meta description</li>
+                <li>Review focus keyword placement</li>
+                <li>Inspect page content and URL signals</li>
+              </ul>
+            </div>
+            <div class="public-mini-card">
+              <h3>Performance audit workflow</h3>
+              <ul class="public-list">
+                <li>Run Lighthouse scoring for mobile and desktop</li>
+                <li>Inspect Core Web Vitals metrics</li>
+                <li>Receive AI-generated recommendations</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="performance" class="public-section public-reveal">
+        <div class="public-section-card">
+          <h2>SEO meets website performance</h2>
+          <p>The public landing page demonstrates the same performance layer the authenticated experience uses: Lighthouse scores, Core Web Vitals, opportunities, diagnostics, and AI-assisted recommendations.</p>
+          <div class="public-grid-4">
+            <div class="public-tool-card"><h3>Performance</h3><p>Measure overall Lighthouse performance quality.</p></div>
+            <div class="public-tool-card"><h3>Accessibility</h3><p>Review accessibility signals and common issues.</p></div>
+            <div class="public-tool-card"><h3>Best Practices</h3><p>Inspect alignment with modern web quality checks.</p></div>
+            <div class="public-tool-card"><h3>SEO</h3><p>Validate technical SEO signals in the report.</p></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="campaigns" class="public-section public-reveal">
+        <div class="public-section-card">
+          <h2>From SEO-ready product to marketing-ready product</h2>
+          <p>Sale campaign preparation and Meta catalog workflows make the platform useful beyond the generator itself, giving teams a path from product content to promotional execution.</p>
+          <div class="public-grid-2">
+            <div class="public-mini-card">
+              <h3>Sale campaigns</h3>
+              <ul class="public-list">
+                <li>Create campaign prompts and organize products</li>
+                <li>Track pending, generating and completed items</li>
+                <li>Move winning products into the marketing workflow</li>
+              </ul>
+            </div>
+            <div class="public-mini-card">
+              <h3>Meta Product Catalog</h3>
+              <ul class="public-list">
+                <li>Prepare products for catalog workflows</li>
+                <li>Track pending and added status</li>
+                <li>Keep product information connected to campaign work</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="faq" class="public-section public-reveal">
+        <div class="public-section-card">
+          <h2>Frequently asked questions</h2>
+          <div class="public-faq-list">
+            <details class="public-faq-item">
+              <summary>What is Abra Zylo AI SEO Generator?</summary>
+              <p>It is an AI-driven product SEO platform for generating and validating search metadata, product descriptions, SEO URLs, and supporting product content.</p>
+            </details>
+            <details class="public-faq-item">
+              <summary>Can Abra Zylo generate meta titles and descriptions?</summary>
+              <p>Yes. The portal generates meta title and meta description fields and validates them against built-in quality checks.</p>
+            </details>
+            <details class="public-faq-item">
+              <summary>Can Abra Zylo improve only failed SEO fields?</summary>
+              <p>Yes. The platform supports field-level regeneration so only the sections that need attention are improved.</p>
+            </details>
+            <details class="public-faq-item">
+              <summary>Does Abra Zylo support Groq, Gemini and OpenRouter?</summary>
+              <p>Yes. The existing app supports provider selection through the generator and settings modules.</p>
+            </details>
+            <details class="public-faq-item">
+              <summary>Does Abra Zylo include an SEO audit tool?</summary>
+              <p>Yes. The portal includes an SEO checker for page title, meta description, focus keyword, content, and URL context.</p>
+            </details>
+            <details class="public-faq-item">
+              <summary>Can Abra Zylo analyze Google PageSpeed Insights?</summary>
+              <p>Yes. The performance workflow uses Lighthouse and Core Web Vitals data from Google PageSpeed Insights.</p>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <section class="public-cta public-reveal">
+        <div class="public-cta-card">
+          <h2>Your product is ready. Is its SEO?</h2>
+          <p>Generate structured, validated, AI-assisted SEO content for every product and then continue into audits, history, campaigns, and catalog preparation.</p>
+          <button class="public-primary-btn" type="button" onclick="window.Landing.showAuth()">Launch Abra Zylo SEO Generator →</button>
+        </div>
+      </section>
+    </main>
+
+    <footer class="public-footer">
+      <div>© Abra Zylo • AI SEO Generator</div>
+      <div>
+        <a href="#platform">Platform</a> •
+        <a href="#generator">SEO Generator</a> •
+        <a href="#audit">SEO Audit</a> •
+        <a href="#performance">Performance</a>
+      </div>
+    </footer>
+  </div>
+</div>
+
+<!-- ═══════════════ AUTH PAGES ═══════════════
+     Starts HIDDEN. app.js adds .active only after
+     onAuthStateChanged fires and user is NOT logged in.
+════════════════════════════════════════════════════════ -->
+<div id="page-auth" class="page page-auth">
+
+  <!-- LOGIN -->
+  <div id="view-login" class="auth-view active">
+    <div class="auth-shell">
+      <div class="auth-left">
+        <div class="auth-logo">
+          <img src="./abra-zylo-seo-portal.png" alt="Abra Zylo AI SEO Portal" decoding="async"/>
+        </div>
+        <h1>SEO that scores<br/><em>100 out of 100.</em></h1>
+        <p>AI-powered SEO for every product on your OpenCart store.</p>
+        <div class="auth-feats">
+          <div class="auth-feat"><span class="feat-dot"></span>Meta title, description &amp; product copy</div>
+          <div class="auth-feat"><span class="feat-dot"></span>SEO URL validator - 11 point checklist</div>
+          <div class="auth-feat"><span class="feat-dot"></span>Groq, Gemini &amp; OpenRouter AI support</div>
+          <div class="auth-feat"><span class="feat-dot"></span>Firebase cloud sync across devices</div>
+          <div class="auth-feat"><span class="feat-dot"></span>Auto-save when SEO score reaches 98+</div>
         </div>
       </div>
-
-      <h1 class="auth-heading">Sign in</h1>
-      <p class="auth-subheading">Access is limited to accounts added by your Super Admin.</p>
-
-      <div id="loginError" class="alert alert-danger d-none" role="alert"></div>
-
-      <form id="loginForm" novalidate>
-        <div class="mb-3">
-          <label class="form-label">Email address</label>
-          <input type="email" class="form-control" id="loginEmail" required autocomplete="username">
+      <div class="auth-right">
+        <div class="auth-box">
+          <h2>Welcome back</h2>
+          <p class="sub">Sign in to your SEO workspace</p>
+          <div id="login-alert" class="alert alert-danger" style="display:none"></div>
+          <div class="form-row"><label>Email</label><input type="email" id="login-email" placeholder="you@example.com" autocomplete="email"/></div>
+          <div class="form-row"><label>Password</label><input type="password" id="login-pass" placeholder="Password" autocomplete="current-password"/></div>
+          <div class="form-row-check"><label><input type="checkbox" id="login-remember"/> Remember me</label></div>
+          <button class="btn btn-accent btn-full" id="login-btn" onclick="window.Auth.login()">Sign in</button>
+          <div class="auth-help-row"><a class="link" onclick="window.Auth.showForgot()">Forgot password?</a></div>
+          <div class="auth-switch">No account? <a class="link" onclick="window.Auth.showView('register')">Create one</a></div>
         </div>
-        <div class="mb-3">
-          <label class="form-label">Password</label>
-          <input type="password" class="form-control" id="loginPassword" required autocomplete="current-password">
-        </div>
-        <button type="submit" id="loginBtn" class="btn btn-brand w-100">Sign In</button>
-      </form>
-
-      <div class="text-center mt-3">
-        <a href="forgot-password.html" class="auth-link">Forgot password?</a>
       </div>
     </div>
-    <p class="auth-footnote">Not seeing your account? Contact your Super Admin to be added.</p>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-  <script src="js/firebase-config.js"></script>
-  <script src="js/auth.js"></script>
-  <script>
-    // Critical error handler for Firebase initialization failures
-    (function() {
-      // Check if Firebase initialized correctly
-      if (typeof firebase === 'undefined') {
-        document.body.innerHTML = '<div style="padding: 40px; text-align: center; font-family: sans-serif;"><h2>Firebase Initialization Error</h2><p>Unable to load Firebase SDK. Please refresh the page or contact support.</p></div>';
-        return;
-      }
+  <!-- REGISTER -->
+  <div id="view-register" class="auth-view">
+    <div class="auth-shell">
+      <div class="auth-left">
+        <div class="auth-logo">
+          <img src="./abra-zylo-seo-portal.png" alt="Abra Zylo AI SEO Portal" decoding="async"/>
+        </div>
+        <h1>Create your<br/><em>SEO workspace.</em></h1>
+        <p>Set up in 60 seconds. All data saved to Firebase cloud.</p>
+        <div class="auth-feats">
+          <div class="auth-feat"><span class="feat-dot"></span>Free with Groq API - 14,400 req/day</div>
+          <div class="auth-feat"><span class="feat-dot"></span>Firebase cloud storage</div>
+          <div class="auth-feat"><span class="feat-dot"></span>No credit card needed</div>
+        </div>
+      </div>
+      <div class="auth-right">
+        <div class="auth-box">
+          <h2>Create account</h2>
+          <p class="sub">Set up your Abra Zylo workspace</p>
+          <div id="reg-alert" class="alert alert-danger" style="display:none"></div>
+          <div class="form-row"><label>Full Name *</label><input type="text" id="reg-name" placeholder="Your name"/></div>
+          <div class="form-row"><label>Email *</label><input type="email" id="reg-email" placeholder="you@example.com"/></div>
+          <div class="form-row"><label>Password *</label><input type="password" id="reg-pass" placeholder="Min 6 characters"/></div>
+          <div class="form-row"><label>Groq API Key <span class="badge-free">OPTIONAL</span></label><input type="password" id="reg-apikey" placeholder="Add later in settings"/></div>
+          <button class="btn btn-accent btn-full" id="reg-btn" onclick="window.Auth.register()">Create account</button>
+          <div class="auth-switch">Already have an account? <a class="link" onclick="window.Auth.showView('login')">Sign in</a></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FORGOT PASSWORD MODAL -->
+  <div id="forgot-modal" class="modal-backdrop" style="display:none">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div><h3>Reset Password</h3><p class="sub">Enter your email to receive a reset link.</p></div>
+        <button class="modal-close" onclick="window.Auth.hideForgot()">x</button>
+      </div>
+      <div id="forgot-alert" class="alert alert-danger" style="display:none"></div>
+      <div id="forgot-ok" class="alert alert-success" style="display:none"></div>
+      <div class="form-row"><label>Email</label><input type="email" id="forgot-email" placeholder="you@example.com"/></div>
+      <div class="modal-actions">
+        <button class="btn btn-accent btn-full" onclick="window.Auth.sendReset()">Send Reset Link</button>
+        <button class="btn btn-outline btn-full" onclick="window.Auth.hideForgot()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /page-auth -->
+
+<!-- ═══════════════ MAIN APP ═══════════════ -->
+<div id="page-app" class="page page-app">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">
+        <img src="./abra-zylo-seo-portal.png" alt="Abra Zylo AI SEO Portal" decoding="async"/>
+      </div>
+    </div>
+    <nav class="sidebar-nav">
+      <span class="nav-label">Main</span>
+      <a class="nav-item active" id="nav-dashboard" onclick="window.App.go('dashboard')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        Dashboard
+      </a>
+      <a class="nav-item" id="nav-generate" onclick="window.App.go('generate')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        Generate SEO
+      </a>
+      <a class="nav-item" id="nav-history" onclick="window.App.go('history')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        History
+        <span class="nav-badge" id="history-badge">0</span>
+      </a>
+      <a class="nav-item" id="nav-audit" onclick="window.App.go('audit')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        SEO Audit
+      </a>
+      <a class="nav-item" id="nav-audit-history" onclick="window.App.go('auditHistory')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Audit History
+        <span class="nav-badge" id="audit-history-badge">0</span>
+      </a>
+      <span class="nav-label" style="margin-top:.5rem">AI Marketing</span>
+      <a class="nav-item" id="nav-products" onclick="window.App.go('products')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/></svg>
+        Products
+        <span class="nav-badge" id="products-badge">0</span>
+      </a>
+      <a class="nav-item admin-only" id="nav-campaigns" onclick="window.App.go('campaigns')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 12l2 2 4-4"/></svg>
+        Sale Campaigns
+        <span class="nav-badge" id="campaigns-badge">0</span>
+      </a>
+      <a class="nav-item admin-only" id="nav-meta-catalog" onclick="window.App.go('meta-catalog')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h4"/><path d="M7 14h6"/><path d="M15 10h2"/><path d="M15 14h2"/></svg>
+        Meta Product Catalog
+      </a>
+      <span class="nav-label" style="margin-top:.5rem">Account</span>
+      <a class="nav-item admin-only" id="nav-accounts" onclick="window.App.go('accounts')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Accounts
+      </a>
+      <a class="nav-item" id="nav-settings" onclick="window.App.go('settings')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 19.07a10 10 0 0 1 0-14.14"/></svg>
+        Settings
+      </a>
+    </nav>
+    <div class="sidebar-ai-tag">
+      <strong id="sidebar-ai-model">Llama 3.3 70B</strong>
+      <span>Free tier - Firebase synced</span>
+    </div>
+    <div class="sidebar-footer">
+      <div class="sidebar-user">
+        <div class="user-avatar" id="sidebar-av">S</div>
+        <div class="user-info">
+          <div class="user-name" id="sidebar-name">Loading...</div>
+          <div class="user-email" id="sidebar-email"></div>
+        </div>
+        <button class="logout-btn" onclick="window.Auth.logout()" title="Logout">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+  <div class="sidebar-backdrop" id="sidebar-backdrop" onclick="window.UI.closeSidebar()"></div>
+
+  <main class="main-content">
+    <header class="topbar">
+      <button class="mobile-menu-btn" onclick="window.UI.toggleSidebar()">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <div class="topbar-title" id="topbar-title">Dashboard</div>
+      <div class="topbar-right">
+        <div class="lang-switcher">
+          <button class="lang-btn active" id="lang-en" onclick="window.App.setLang('en')">EN</button>
+          <button class="lang-btn" id="lang-hi" onclick="window.App.setLang('hi')">HI</button>
+          <button class="lang-btn" id="lang-te" onclick="window.App.setLang('te')">TE</button>
+        </div>
+        <button class="theme-btn" onclick="window.UI.toggleTheme()" title="Toggle theme">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- ACCESS RESTRICTED OVERLAY -->
+    <div class="access-overlay" id="access-overlay" style="display:none">
+      <div class="access-card">
+        <div class="access-icon">&#x23F3;</div>
+        <h2>Account Access Restricted</h2>
+        <p id="access-msg">Your account is waiting for administrator approval.</p>
+        <p>Please contact the administrator if you believe this is a mistake.</p>
+      </div>
+    </div>
+
+    <div class="page-body">
+
+      <!-- DASHBOARD -->
+      <section id="tab-dashboard" class="tab-section active">
+        <div class="stats-grid" id="dash-stats"></div>
+        <div class="dashboard-overview-grid">
+          <section class="dashboard-panel card" aria-labelledby="attention-title">
+            <div class="card-header"><h2 id="attention-title">🚨 Needs Attention</h2></div>
+            <div class="card-body attention-list" id="dashboard-attention-list"></div>
+          </section>
+          <section class="dashboard-panel card" aria-labelledby="readiness-title">
+            <div class="card-header"><h2 id="readiness-title">📘 Meta Catalog Readiness</h2></div>
+            <div class="card-body" id="meta-readiness-content"><p class="empty-msg">Loading catalog readiness...</p></div>
+            <div class="dashboard-panel-footer"><button class="btn btn-outline btn-sm" onclick="window.App.go('meta-catalog')">View Meta Catalog →</button></div>
+          </section>
+        </div>
+        <section class="dashboard-panel card dashboard-campaign-panel" aria-labelledby="campaign-progress-title">
+          <div class="card-header"><h2 id="campaign-progress-title">🛍️ Campaign Progress</h2><button class="btn btn-outline btn-sm" onclick="window.App.go('campaigns')">View All Campaigns →</button></div>
+          <div class="card-body" id="dashboard-campaign-progress"><p class="empty-msg">Loading campaign progress...</p></div>
+        </section>
+        <div class="dashboard-bottom-grid">
+          <section class="dashboard-panel card" aria-labelledby="quick-actions-title">
+            <div class="card-header"><h2 id="quick-actions-title">⚡ Quick Actions</h2></div>
+            <div class="card-body quick-actions-grid">
+              <button class="quick-action" onclick="window.App.go('products');setTimeout(() => window.Marketing.showAddProduct(), 0)"><b>＋</b><span>Add Product</span></button>
+              <button class="quick-action" onclick="window.App.go('generate')"><b>✨</b><span>Generate SEO</span></button>
+              <button class="quick-action" onclick="window.App.go('campaigns');setTimeout(() => window.Marketing.showCreateCampaign(), 0)"><b>＋</b><span>Create Campaign</span></button>
+              <button class="quick-action" onclick="window.App.go('campaigns')"><b>🖼️</b><span>Continue Generation</span></button>
+              <button class="quick-action" onclick="window.App.go('meta-catalog')"><b>📘</b><span>Meta Catalog</span></button>
+              <button class="quick-action" onclick="window.App.go('audit')"><b>🔍</b><span>Run SEO Audit</span></button>
+            </div>
+          </section>
+          <section class="dashboard-panel card" id="recent-card" aria-labelledby="recent-title">
+            <div class="card-header"><h2 id="recent-title">🕐 Recent Activity</h2></div>
+            <div class="card-body" id="recent-list"><p class="empty-msg">Loading recent activity...</p></div>
+          </section>
+        </div>
+      </section>
+
+      <!-- GENERATE SEO -->
+      <section id="tab-generate" class="tab-section">
+        <div class="gen-grid">
+          <div class="gen-left">
+            <div class="card">
+              <div class="card-header">
+                <h3>Product Details</h3>
+                <button class="btn btn-ghost btn-sm" onclick="window.Generator.startNewProduct()" title="Clear all and start a new product">+ New Product</button>
+              </div>
+              <div class="card-body">
+                <div class="upload-box" id="upload-box" onclick="document.getElementById('file-inp').click()">
+                  <input type="file" id="file-inp" accept="image/*" onchange="window.Generator.onFileSelect(event)" style="display:none"/>
+                  <img id="img-preview" alt="preview" style="display:none"/>
+                  <div id="upload-placeholder">
+                    <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                    <p>Click or drag to upload product image <span style="color:var(--red);font-weight:700">*</span></p>
+                    <span>JPG, PNG, WEBP - Max 10MB - Required</span>
+                  </div>
+                </div>
+                <div id="upload-hint" class="field-hint" style="display:none">Product image is required</div>
+
+                <div class="form-row" id="name-row" style="margin-top:1rem">
+                  <label>Product Name <span style="color:var(--red)">*</span></label>
+                  <input type="text" id="prod-name" placeholder="e.g. Crimson Slim Fit T-Shirt"
+                         oninput="window.Generator?.checkForm()"/>
+                  <div class="field-hint">Enter the exact product name as it should appear in search results</div>
+                </div>
+                <div class="form-row" id="cat-row">
+                  <label>Category <span style="color:var(--red)">*</span></label>
+                  <select id="prod-cat" onchange="window.Generator?.checkForm()">
+                    <option value="">-- Select a category --</option>
+                    <option>Fashion &amp; Clothing</option><option>Electronics &amp; Gadgets</option>
+                    <option>Home &amp; Kitchen</option><option>Beauty &amp; Personal Care</option>
+                    <option>Sports &amp; Fitness</option><option>Books &amp; Stationery</option>
+                    <option>Toys &amp; Kids</option><option>Jewellery &amp; Accessories</option>
+                    <option>Food &amp; Grocery</option><option>Other</option>
+                  </select>
+                  <div class="field-hint">Category helps the AI understand the product context</div>
+                </div>
+                <div class="form-row">
+                  <label>Output Language</label>
+                  <select id="prod-lang">
+                    <option value="en">English</option>
+                    <option value="hi">Hindi</option>
+                    <option value="te">Telugu</option>
+                  </select>
+                </div>
+                <div class="form-row">
+                  <label>AI Provider</label>
+                  <select id="prod-provider">
+                    <option value="groq">Groq (Llama 3.3 70B)</option>
+                    <option value="gemini">Google Gemini</option>
+                    <option value="openrouter">OpenRouter</option>
+                  </select>
+                </div>
+
+                <!-- Pricing Fields for Reference Only -->
+                <div class="pricing-section">
+                  <h4 style="margin: 1.5rem 0 0.5rem 0; color: var(--text2); font-size: 0.875rem; font-weight: 600;">Pricing (For Reference Only)</h4>
+                  <div class="form-row">
+                    <label>Model Number</label>
+                    <input type="text" id="prod-model-number" placeholder="AZ0001" maxlength="64" autocomplete="off"/>
+                    <div class="field-hint">Optional product model reference</div>
+                  </div>
+                  <div class="form-row">
+                    <label>MRP</label>
+                    <input type="number" id="prod-mrp" placeholder="999" min="1" step="0.01" oninput="window.Generator.calculateDiscount()"/>
+                    <div class="field-hint">Maximum Retail Price</div>
+                  </div>
+                  <div class="form-row">
+                    <label>Selling Price</label>
+                    <input type="number" id="prod-selling-price" placeholder="699" min="1" step="0.01" oninput="window.Generator.calculateDiscount()"/>
+                    <div class="field-hint">Actual selling price</div>
+                  </div>
+                  <div class="form-row">
+                    <label>Discount %</label>
+                    <input type="text" id="prod-discount" readonly class="readonly-field" placeholder="Auto-calculated"/>
+                    <div class="field-hint">Automatically calculated from MRP and selling price</div>
+                  </div>
+                  <div class="form-row">
+                    <label>You Save</label>
+                    <input type="text" id="prod-you-save" readonly class="readonly-field" placeholder="Auto-calculated"/>
+                    <div class="field-hint">Amount saved from MRP</div>
+                  </div>
+                </div>
+                <div id="gen-alert" class="alert alert-danger" style="display:none;white-space:pre-line"></div>
+                <button class="btn btn-accent btn-full" id="gen-btn"
+                        onclick="window.Generator.generate()" disabled
+                        title="Upload an image, enter product name, and select a category to enable">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                  Generate SEO Content
+                </button>
+                <p id="gen-required-hint" class="gen-hint">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  Image, Product Name, and Category are all required
+                </p>
+              </div>
+            </div>
+          </div>
+          <div class="gen-right">
+            <div class="result-panel" id="result-panel">
+              <div id="result-empty" class="result-empty">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <p>Your complete SEO content will appear here.</p>
+              </div>
+              <div id="result-content" style="display:none"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- HISTORY -->
+      <section id="tab-history" class="tab-section">
+        <div class="page-header">
+          <div>
+            <h1>Generation History</h1>
+            <p class="text-muted">Track each product and its SEO generations in one structured view.</p>
+          </div>
+        </div>
+        <div class="history-toolbar">
+          <input type="text" id="hist-search" placeholder="Search products or languages..." oninput="window.History.render()"/>
+          <select id="hist-lang" onchange="window.History.render()">
+            <option value="">All Languages</option>
+            <option value="en">English</option><option value="hi">Hindi</option><option value="te">Telugu</option>
+          </select>
+          <button class="btn btn-outline btn-sm" onclick="window.History.exportJSON()">Export JSON</button>
+          <button class="btn btn-danger btn-sm admin-only" onclick="window.History.clearAll()">Clear All</button>
+        </div>
+        <div id="history-list" class="history-list"></div>
+      </section>
+
+      <!-- SEO AUDIT -->
+      <section id="tab-audit" class="tab-section">
+        <div class="page-header">
+          <div>
+            <h1>SEO Audit Tool</h1>
+            <p class="text-muted">Check on-page SEO strength and run a live performance audit for any site.</p>
+          </div>
+        </div>
+
+        <div class="audit-tabs">
+          <button class="audit-tab-btn active" data-tab="performance" onclick="window.Audit.switchAuditTab('performance')">Performance</button>
+          <button class="audit-tab-btn" data-tab="seo" onclick="window.Audit.switchAuditTab('seo')">SEO Checker</button>
+        </div>
+
+        <div id="audit-tab-performance" class="audit-tab-content active">
+          <div class="card" style="margin-bottom:1.25rem">
+            <div class="card-header"><h3>Real-Time Performance Audit</h3></div>
+            <div class="card-body">
+              <div class="info-box info-box-green" style="margin-bottom:1rem">
+                <strong>Google PageSpeed Insights Integration</strong><br/>
+                Analyze any website using Google's Lighthouse engine. Get real-time performance, accessibility, best practices, and SEO scores along with Core Web Vitals metrics.
+              </div>
+              <div class="form-row">
+                <label>Website URL</label>
+                <input type="url" id="perf-url" placeholder="https://example.com"/>
+              </div>
+              <div class="form-row">
+                <label>Strategy</label>
+                <div style="display:flex;gap:1rem;align-items:center">
+                  <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+                    <input type="radio" name="perf-strategy" value="mobile" checked/>
+                    <span>Mobile</span>
+                  </label>
+                  <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+                    <input type="radio" name="perf-strategy" value="desktop"/>
+                    <span>Desktop</span>
+                  </label>
+                </div>
+              </div>
+              <div class="form-row">
+                <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+                  <input type="checkbox" id="perf-ai-enabled" checked/>
+                  <span style="font-weight:600">🤖 Enable AI Performance Analysis <span style="font-size:.75rem;color:var(--text3);font-weight:400">(Powered by Groq/Gemini/OpenRouter)</span></span>
+                </label>
+                <div class="field-hint">Get expert recommendations, actionable fixes, and step-by-step solutions from AI</div>
+              </div>
+              <div id="perf-alert" class="alert alert-danger" style="display:none"></div>
+              <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.5rem">
+                <button class="btn btn-accent" id="perf-btn" onclick="window.Audit.runPerformanceAudit()">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <circle cx="12" cy="12" r="10"/>
+                    <polyline points="12 6 12 12 16 14"/>
+                  </svg>
+                  Analyze Performance
+                </button>
+                <button class="btn btn-outline btn-sm" onclick="window.Audit.clearPerformance()">Clear</button>
+              </div>
+            </div>
+          </div>
+          <div id="perf-results" style="display:none"></div>
+        </div>
+
+        <div id="audit-tab-seo" class="audit-tab-content">
+          <div class="card" style="margin-bottom:1.25rem">
+            <div class="card-header"><h3>Quick SEO Checker</h3></div>
+            <div class="card-body">
+              <div class="form-row">
+                <label>Page Title</label>
+                <input type="text" id="audit-title" placeholder="Enter page title"/>
+              </div>
+              <div class="form-row">
+                <label>Meta Description</label>
+                <textarea id="audit-meta" rows="3" placeholder="Enter meta description"></textarea>
+              </div>
+              <div class="form-row">
+                <label>Focus Keyword</label>
+                <input type="text" id="audit-kw" placeholder="e.g. premium t shirt"/>
+              </div>
+              <div class="form-row">
+                <label>Page Content</label>
+                <textarea id="audit-content" rows="6" placeholder="Paste your page content here"></textarea>
+              </div>
+              <div class="form-row">
+                <label>Page URL</label>
+                <input type="url" id="audit-url" placeholder="https://example.com/page"/>
+              </div>
+              <div id="audit-alert" class="alert alert-danger" style="display:none"></div>
+              <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+                <button class="btn btn-accent" onclick="window.Audit.run()">Run SEO Audit</button>
+                <button class="btn btn-outline btn-sm" onclick="window.Audit.clear()">Clear</button>
+                <button class="btn btn-primary btn-sm" onclick="window.Audit.saveToFirebase()">Save Result</button>
+              </div>
+            </div>
+          </div>
+          <div id="audit-results" style="display:none"></div>
+        </div>
+      </section>
+
+      <!-- AUDIT HISTORY -->
+      <section id="tab-auditHistory" class="tab-section">
+        <div class="card">
+          <div class="card-header">
+            <h3>Audit History</h3>
+            <button class="btn btn-outline btn-sm admin-only" onclick="window.AuditHistory.clearAllReports()">Clear All</button>
+          </div>
+          <div class="card-body" id="audit-history-container"><p class="empty-msg">No audits saved yet.</p></div>
+        </div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section id="tab-settings" class="tab-section">
+        <div id="settings-container"></div>
+      </section>
+
+      <!-- ACCOUNTS (admin only) -->
+      <section id="tab-accounts" class="tab-section">
+        <div id="accounts-container"></div>
+      </section>
+
+      <!-- PRODUCTS (AI Marketing) -->
+      <section id="tab-products" class="tab-section">
+        <div class="page-header">
+          <h1>Products</h1>
+          <button class="btn btn-accent" onclick="window.Marketing.showAddProduct()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Add Product
+          </button>
+        </div>
+        <div class="products-toolbar">
+          <input type="text" id="products-search" placeholder="Search products or added by..." oninput="window.Marketing.handleProductsSearchInput()"/>
+          <select id="products-sort" class="products-sort-select" onchange="window.Marketing.renderProducts()">
+            <option value="newest">Newest</option>
+            <option value="oldest">Oldest</option>
+            <option value="recently-updated">Recently Updated</option>
+            <option value="name-az">Name A–Z</option>
+            <option value="name-za">Name Z–A</option>
+          </select>
+          <div class="products-filters">
+            <button type="button" class="btn btn-outline btn-sm products-filter-chip" data-filter="added-by-me" onclick="window.Marketing.toggleProductsFilter('added-by-me')">Added by Me</button>
+            <button type="button" class="btn btn-outline btn-sm products-filter-chip" data-filter="added-today" onclick="window.Marketing.toggleProductsFilter('added-today')">Added Today</button>
+            <button type="button" class="btn btn-outline btn-sm products-filter-chip" data-filter="updated-today" onclick="window.Marketing.toggleProductsFilter('updated-today')">Updated Today</button>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="window.Marketing.clearProductFilters()" style="display:none" id="products-clear-filters">Clear</button>
+          </div>
+          <button class="btn btn-outline btn-sm" id="product-compare-btn" onclick="window.Marketing.compareSelectedProducts()" style="margin-left:0.5rem" disabled>Compare Selected</button>
+        </div>
+        <div id="products-grid" class="products-grid"></div>
+      </section>
+
+      <!-- SALE CAMPAIGNS (admin only) -->
+      <section id="tab-campaigns" class="tab-section admin-only">
+        <div class="page-header">
+          <h1>Sale Campaigns</h1>
+          <button class="btn btn-accent" onclick="window.Marketing.showCreateCampaign()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Create Campaign
+          </button>
+        </div>
+        <div class="campaigns-toolbar">
+          <input type="text" id="campaigns-search" placeholder="Search campaigns..." oninput="window.Marketing.renderCampaigns()"/>
+        </div>
+        <div id="campaigns-grid" class="campaigns-grid"></div>
+      </section>
+
+      <!-- META PRODUCT CATALOG (admin only) -->
+      <section id="tab-meta-catalog" class="tab-section admin-only">
+        <div class="page-header">
+          <div>
+            <h1>Meta Product Catalog</h1>
+            <p class="text-muted">Campaign-ready Meta Catalog products sourced from completed Sale Campaign items.</p>
+          </div>
+        </div>
+        <div class="campaigns-toolbar">
+          <input type="text" id="meta-campaign-search" placeholder="Search campaigns..." oninput="window.Marketing.handleMetaCatalogSearchInput()"/>
+        </div>
+        <div id="meta-campaigns-grid" class="campaigns-grid"></div>
+        <div id="meta-catalog-detail" class="meta-catalog-detail" style="display:none">
+          <div class="campaign-detail-header">
+            <button class="btn btn-ghost" onclick="window.Marketing.closeMetaCatalogCampaign()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/>
+              </svg>
+              Back to Meta Product Catalog
+            </button>
+            <div class="campaign-detail-info">
+              <h1 id="meta-campaign-detail-name">Campaign Name</h1>
+              <p id="meta-campaign-detail-subtitle" class="text-muted">0 Meta Products</p>
+            </div>
+          </div>
+          <div class="meta-stat-grid">
+            <div class="meta-stat-card">
+              <div class="meta-stat-label">Total Products</div>
+              <div class="meta-stat-value" id="meta-total-count">0</div>
+            </div>
+            <div class="meta-stat-card">
+              <div class="meta-stat-label">Pending</div>
+              <div class="meta-stat-value" id="meta-pending-count">0</div>
+            </div>
+            <div class="meta-stat-card">
+              <div class="meta-stat-label">Added</div>
+              <div class="meta-stat-value" id="meta-added-count">0</div>
+            </div>
+          </div>
+          <div class="meta-status-filter-bar">
+            <button type="button" class="btn btn-outline btn-sm meta-status-filter active" data-filter="all" onclick="window.Marketing.filterMetaCatalog('all')">All</button>
+            <button type="button" class="btn btn-outline btn-sm meta-status-filter" data-filter="pending" onclick="window.Marketing.filterMetaCatalog('pending')">Pending</button>
+            <button type="button" class="btn btn-outline btn-sm meta-status-filter" data-filter="added" onclick="window.Marketing.filterMetaCatalog('added')">Added</button>
+          </div>
+          <div id="meta-catalog-products-grid" class="meta-catalog-products-grid"></div>
+        </div>
+      </section>
+
+      <!-- CAMPAIGN DETAILS -->
+      <section id="tab-campaign-detail" class="tab-section">
+        <div class="campaign-detail-header">
+          <button class="btn btn-ghost" onclick="window.App.go('campaigns')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/>
+            </svg>
+            Back to Campaigns
+          </button>
+          <div class="campaign-detail-info">
+            <h1 id="campaign-detail-name">Campaign Name</h1>
+            <p id="campaign-detail-prompt" class="text-muted">Campaign prompt will appear here</p>
+          </div>
+          <button id="campaign-add-products-btn" class="btn btn-accent" onclick="window.Marketing.showCampaignProductSelector('add')" style="display:none">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Add Products
+          </button>
+        </div>
+        
+        <!-- Product Selection (shown before campaign starts) -->
+        <div id="product-selection" class="product-selection" style="display:none">
+          <div class="card">
+            <div class="card-header">
+              <h3 id="campaign-selection-title">Select Products for Campaign</h3>
+              <label class="checkbox-label">
+                <input type="checkbox" id="select-all-products" onchange="window.Marketing.toggleSelectAll()"/>
+                <span>Select All</span>
+              </label>
+            </div>
+            <div class="card-body">
+              <div class="products-toolbar">
+                <input type="text" id="campaign-products-search" placeholder="Search products..." oninput="window.Marketing.renderCampaignProducts()"/>
+              </div>
+              <div id="campaign-products-list" class="campaign-products-list"></div>
+              <div class="product-selection-actions">
+                <button id="campaign-selection-submit-btn" class="btn btn-accent" onclick="window.Marketing.startCampaign()">Start Campaign</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Campaign Tabs -->
+        <div id="campaign-tabs" class="campaign-tabs" style="display:none">
+          <button class="campaign-tab-btn active" data-status="pending" onclick="window.Marketing.switchCampaignTab('pending')">
+            Pending <span class="tab-count" id="pending-count">0</span>
+          </button>
+          <button class="campaign-tab-btn" data-status="generating" onclick="window.Marketing.switchCampaignTab('generating')">
+            Generating <span class="tab-count" id="generating-count">0</span>
+          </button>
+          <button class="campaign-tab-btn" data-status="completed" onclick="window.Marketing.switchCampaignTab('completed')">
+            Completed <span class="tab-count" id="completed-count">0</span>
+          </button>
+        </div>
+
+        <!-- Campaign Items Grid -->
+        <div id="campaign-items-grid" class="campaign-items-grid" style="display:none"></div>
+      </section>
+
+    </div><!-- /page-body -->
+  </main>
+</div><!-- /page-app -->
+
+<!-- HISTORY DETAIL MODAL -->
+<div class="overlay" id="hist-modal" style="display:none">
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <h3 id="hm-title">Product Details</h3>
+      <button class="modal-close" onclick="window.UI.closeModal('hist-modal')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body" id="hm-body"></div>
+  </div>
+</div>
+
+<!-- AUDIT REPORT MODAL -->
+<div class="overlay" id="audit-report-modal" style="display:none">
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <h3 id="audit-report-modal-title">Performance Report</h3>
+      <button class="modal-close" onclick="window.UI.closeModal('audit-report-modal')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body" id="audit-report-modal-body" style="max-height:70vh;overflow-y:auto"></div>
+  </div>
+</div>
+
+<!-- COMPARISON MODAL -->
+<div class="overlay" id="comparison-modal" style="display:none">
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <h3 id="comparison-modal-title">Performance Report Comparison</h3>
+      <button class="modal-close" onclick="window.UI.closeModal('comparison-modal')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body" id="comparison-modal-body" style="max-height:70vh;overflow-y:auto"></div>
+  </div>
+</div>
+
+<!-- LOADING OVERLAY -->
+<div class="loading-overlay" id="loading-overlay" style="display:none">
+  <div class="loading-card">
+    <div class="loading-header">
+      <div class="loading-icon">&#x1F916;</div>
+      <div>
+        <div class="loading-title" id="loading-title">AI SEO Engine</div>
+        <div class="loading-subtitle" id="loading-subtitle">Generating your SEO content...</div>
+      </div>
+    </div>
+    <div class="loading-progress">
+      <div class="progress-label"><span id="progress-pct">0%</span></div>
+      <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+    </div>
+    <div id="loading-steps" class="loading-steps"></div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast" class="toast"></div>
+
+<!-- AI MARKETING MODALS -->
+
+<!-- ADD/EDIT PRODUCT MODAL -->
+<div class="overlay" id="product-modal" style="display:none">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="product-modal-title">Add Product</h3>
+      <button class="modal-close" onclick="window.Marketing.hideProductModal()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <form id="product-form">
+        <div class="form-row">
+          <label>Product Image <span style="color:var(--red)">*</span></label>
+          <div class="product-image-upload" id="product-image-upload" onclick="document.getElementById('product-file-inp').click()">
+            <input type="file" id="product-file-inp" accept="image/*" onchange="window.Marketing.onProductImageSelect(event)" style="display:none"/>
+            <img id="product-img-preview" alt="preview" style="display:none"/>
+            <div id="product-upload-placeholder">
+              <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
+                <polyline points="21 15 16 10 5 21"/>
+              </svg>
+              <p>Click to upload product image</p>
+              <span>JPG, PNG, WEBP - Max 10MB</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="form-row">
+          <label>Product Name <span style="color:var(--red)">*</span></label>
+          <input type="text" id="product-name" placeholder="e.g. Premium Cotton T-Shirt" required/>
+        </div>
+
+        <div class="form-row">
+          <label>Model Number</label>
+          <input type="text" id="product-model-number" placeholder="AZ0001" maxlength="64" autocomplete="off"/>
+        </div>
+        
+        <div class="form-row">
+          <label>MRP <span style="color:var(--red)">*</span></label>
+          <input type="number" id="product-mrp" placeholder="999" min="1" step="0.01" required oninput="window.Marketing.calculateDiscount()"/>
+        </div>
+        
+        <div class="form-row">
+          <label>Selling Price <span style="color:var(--red)">*</span></label>
+          <input type="number" id="product-selling-price" placeholder="699" min="1" step="0.01" required oninput="window.Marketing.calculateDiscount()"/>
+        </div>
+        
+        <div class="form-row">
+          <label>Discount %</label>
+          <input type="text" id="product-discount" readonly class="readonly-field"/>
+        </div>
+        
+        <div class="form-row">
+          <label>You Save</label>
+          <input type="text" id="product-you-save" readonly class="readonly-field"/>
+        </div>
+
+        <div class="product-history-block" id="product-history-block" style="display:none">
+          <div class="product-history-divider"></div>
+          <h4>Product History</h4>
+          <div class="product-history-item">
+            <div class="product-history-label">👤 Created By</div>
+            <div class="product-history-value" id="product-created-by">-</div>
+          </div>
+          <div class="product-history-item">
+            <div class="product-history-label">📅 Created On</div>
+            <div class="product-history-value" id="product-created-on">-</div>
+          </div>
+          <div class="product-history-item">
+            <div class="product-history-label">✏️ Last Updated By</div>
+            <div class="product-history-value" id="product-updated-by">Never</div>
+          </div>
+          <div class="product-history-item">
+            <div class="product-history-label">📅 Last Updated On</div>
+            <div class="product-history-value" id="product-updated-on">Never</div>
+          </div>
+        </div>
+        
+        <div id="product-alert" class="alert alert-danger" style="display:none"></div>
+        
+        <div class="modal-actions">
+          <button type="submit" class="btn btn-accent">Save Product</button>
+          <button type="button" class="btn btn-outline" onclick="window.Marketing.hideProductModal()">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- CREATE CAMPAIGN MODAL -->
+<div class="overlay" id="campaign-modal" style="display:none">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="campaign-modal-title">Create Sale Campaign</h3>
+      <button class="modal-close" onclick="window.Marketing.hideCampaignModal()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <form id="campaign-form">
+        <div class="form-row">
+          <label>Sale Name <span style="color:var(--red)">*</span></label>
+          <input type="text" id="campaign-name" placeholder="e.g. Summer Sale 2024" required/>
+        </div>
+        
+        <div class="form-row">
+          <label>Prompt <span style="color:var(--red)">*</span></label>
+          <textarea id="campaign-prompt" rows="8" required placeholder="Create a premium e-commerce promotional poster for {{PRODUCT_NAME}} with the following details:
+
+MRP: ₹{{MRP}}
+Sale Price: ₹{{SALE_PRICE}}
+Discount: {{DISCOUNT}}%
+You Save: ₹{{YOU_SAVE}}
+
+Make it visually appealing with modern design elements."></textarea>
+          <div class="field-hint">
+            Use placeholders: {{MRP}}, {{SALE_PRICE}}, {{DISCOUNT}}, {{YOU_SAVE}}
+          </div>
+        </div>
+        
+        <div id="campaign-alert" class="alert alert-danger" style="display:none"></div>
+        
+        <div class="modal-actions">
+          <button type="submit" class="btn btn-accent">Create Campaign</button>
+          <button type="button" class="btn btn-outline" onclick="window.Marketing.hideCampaignModal()">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- META PRODUCT DETAIL MODAL -->
+<div class="overlay" id="meta-product-modal" style="display:none">
+  <div class="modal modal-lg meta-product-modal">
+    <div class="modal-head meta-product-modal-header">
+      <h3 id="meta-product-modal-title">Product Details</h3>
+      <button class="modal-close" onclick="window.Marketing.hideMetaProductModal()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+    <div class="meta-product-modal-body">
+      <div id="meta-product-modal-body"></div>
+    </div>
+    <div class="modal-actions meta-product-modal-footer" id="meta-product-modal-footer">
+      <button type="button" class="btn btn-outline" onclick="window.Marketing.hideMetaProductModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- CAMPAIGN ITEM DETAIL MODAL -->
+<div class="overlay" id="campaign-item-modal" style="display:none">
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <h3 id="campaign-item-modal-title">Campaign Item Details</h3>
+      <button class="modal-close" onclick="window.Marketing.hideCampaignItemModal()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="campaign-item-detail">
+        <div class="campaign-item-image">
+          <img id="campaign-item-image" alt="Product"/>
+        </div>
+        <div class="campaign-item-info">
+          <h3 id="campaign-item-product-name">Product Name</h3>
+          <div class="campaign-item-status">
+            <span class="status-badge" id="campaign-item-status">pending</span>
+            <button type="button" class="btn btn-outline btn-sm" onclick="window.Marketing.copyCampaignItemName()" style="margin-left:.75rem">
+              📋 Copy
+            </button>
+          </div>
+        </div>
+      </div>
       
-      // Check for services
-      if (!window.isAuthAvailable || !window.isAuthAvailable()) {
-        document.body.innerHTML = '<div style="padding: 40px; text-align: center; font-family: sans-serif;"><h2>Authentication Service Error</h2><p>Authentication service is temporarily unavailable. Please refresh the page.</p></div>';
-        return;
-      }
+      <div class="form-row">
+        <label>Generated Prompt</label>
+        <textarea id="campaign-item-prompt" rows="10"></textarea>
+      </div>
       
-      console.log('Firebase initialized successfully');
-    })();
-  </script>
+      <div id="campaign-item-alert" class="alert alert-danger" style="display:none"></div>
+      
+      <div class="modal-actions">
+        <button class="btn btn-outline" onclick="window.Marketing.copyPrompt()">Copy Prompt</button>
+        <button class="btn btn-accent" id="mark-generating-btn" onclick="window.Marketing.markGenerating()" style="display:none">
+          Mark Generating
+        </button>
+        <button class="btn btn-accent" id="mark-completed-btn" onclick="window.Marketing.markCompleted()" style="display:none">
+          Mark Completed
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- FIREBASE (module - loads first) -->
+<script type="module" src="js/firebase.js"></script>
+<!-- APP MODULES -->
+<script type="module" src="js/app.js"></script>
+<script src="js/landing.js"></script>
+
 </body>
 </html>

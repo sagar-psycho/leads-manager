@@ -1,527 +1,269 @@
-// ============================================================
-// APP.JS — Shell: role-based nav, view switching, current user
-// ============================================================
+/**
+ * app.js - Main application controller
+ *
+ * Security init flow:
+ *
+ *   1. Page loads  →  #init-screen is visible, all other pages hidden
+ *   2. Firebase SDK loads  →  onAuthStateChanged fires
+ *   3a. No user  →  dismiss init screen, show login page only
+ *   3b. User found  →  load Firestore user doc, check approval status
+ *       - Pending/Blocked  →  show access-restricted screen
+ *       - Approved  →  set body[data-app-ready], show full app
+ *
+ * The CSS rule:
+ *   body[data-app-ready] .page-app.active { display: flex }
+ * ensures the app shell is NEVER visible until this attribute is set.
+ */
+import * as Auth      from './auth.js';
+import * as UI        from './ui.js';
+import * as Dashboard from './dashboard.js';
+import * as Generator from './seo-generator.js';
+import * as History   from './history.js';
+import * as Audit     from './audit.js';
+import * as Settings  from './settings.js';
+import * as Accounts  from './accounts.js';
+import * as AuditHistory from './audit-history.js';
+import * as Marketing from './marketing.js';
 
-let CURRENT_USER = null; // { uid, email, name, role, active }
+// ── EXPOSE MODULES TO window (required by HTML onclick attrs) ─
+window.Auth      = Auth;
+window.UI        = UI;
+window.Dashboard = Dashboard;
+window.Generator = Generator;
+window.History   = History;
+window.Audit     = Audit;
+window.Settings  = Settings;
+window.Accounts  = Accounts;
+window.AuditHistory = AuditHistory;
+window.Marketing = Marketing;
 
-const ROLE_LABELS = {
-  superadmin: "Super Admin",
-  admin: "Admin",
-  member: "Sales Member",
-  hr: "HR"
-};
+// ── APP CONTROLLER ────────────────────────────────────────────
+const App = {
+  _lang:          'en',
+  _authConfirmed: false,   // true once onAuthStateChanged has fired at least once
 
-async function initApp() {
-  CURRENT_USER = await requireAuth();
-  window.CURRENT_USER = CURRENT_USER;
+  /**
+   * Navigate to a tab.
+   * Guards every route — unauthenticated calls are silently ignored.
+   */
+  go(tab) {
+    // Hard block: refuse all navigation until auth is confirmed
+    if (!this._authConfirmed) return;
 
-  document.getElementById("userName").textContent =
-    CURRENT_USER.name || CURRENT_USER.email;
-  document.getElementById("userRole").textContent =
-    ROLE_LABELS[CURRENT_USER.role] || CURRENT_USER.role;
-
-  // ADD LEAD BUTTON — admin / superadmin only
-  if (CURRENT_USER.role === "admin" || CURRENT_USER.role === "superadmin") {
-    document.getElementById("addLeadBtnWrap").innerHTML = `
-      <button class="btn btn-brand"
-              data-bs-toggle="modal"
-              data-bs-target="#addLeadModal">
-        <i class="bi bi-plus-lg"></i> Add Lead
-      </button>`;
-  }
-
-  buildNav();
-  showView("leads");
-  requestNotificationPermission();
-
-  // Subscribe to CRM Settings in real time (all roles)
-  subscribeCRMSettings();
-
-  // Subscribe to Campaigns + Campaign Fields (all roles need the cache;
-  // only Super Admin sees the management UI)
-  subscribeCampaigns();
-
-  // Load personal AI settings
-  await loadAISettings();
-
-  await migratePendingAssignmentLeadState();
-  await assignPendingLeads();
-  await loadLeadsView();
-
-  if (CURRENT_USER.role === "superadmin") {
-    await loadUsersView();
-  }
-
-  // Subscribe to Call Audits (for Admin/Super Admin dashboard)
-  if (CURRENT_USER.role === "admin" || CURRENT_USER.role === "superadmin") {
-    subscribeCallAudits();
-  }
-
-  // Start background watchers
-  startReminderWatcher();
-  startPendingAssignmentPoller();
-
-  // Post-login checks
-  await checkAISetupPrompt();
-  await checkHolidayWelcome();       // show welcome popup if yesterday was a holiday
-  await checkAndRunMigration();      // one-time migration: Not Picking Call → No Response
-}
-
-function buildNav() {
-  const nav     = document.getElementById("sideNav");
-  const isSA    = CURRENT_USER.role === "superadmin";
-  const isAdmin = CURRENT_USER.role === "admin";
-  const isHR    = CURRENT_USER.role === "hr";
-  const isMember = CURRENT_USER.role === "member";
-
-  let html = `
-    <a href="#" class="nav-link nav-item-link active" data-view="leads">
-      <i class="bi bi-list-task"></i> Leads
-    </a>`;
-
-  if (isMember || isHR) {
-    html += `
-    <a href="#" class="nav-link nav-item-link" data-view="myfollowups">
-      <i class="bi bi-clock-history"></i> Follow-ups
-    </a>
-    <a href="#" class="nav-link nav-item-link" data-view="urgent">
-      <i class="bi bi-exclamation-triangle"></i>
-      My Urgent Actions
-      <span id="urgentBadge" class="urgent-nav-badge d-none"></span>
-    </a>`;
-  } else {
-    // Admin + Super Admin
-    html += `
-    <a href="#" class="nav-link nav-item-link" data-view="dashboard">
-      <i class="bi bi-speedometer2"></i> Dashboard
-    </a>
-    <a href="#" class="nav-link nav-item-link" data-view="urgent">
-      <i class="bi bi-exclamation-triangle"></i>
-      Urgent Actions
-      <span id="urgentBadge" class="urgent-nav-badge d-none"></span>
-    </a>
-    <a href="#" class="nav-link nav-item-link" data-view="callaudit">
-      <i class="bi bi-clipboard-check"></i> Call Audit
-    </a>
-    <a href="#" class="nav-link nav-item-link" data-view="report">
-      <i class="bi bi-file-earmark-text"></i> Daily Report
-    </a>`;
-  }
-
-  // Leave Management — all roles (members see own leave only)
-  html += `
-    <a href="#" class="nav-link nav-item-link" data-view="leave">
-      <i class="bi bi-calendar2-check"></i> Leave Management
-    </a>`;
-  
-  // HR Transfers — Admin and Super Admin only
-  if (!isMember) {
-    html += `
-    <a href="#" class="nav-link nav-item-link" data-view="hrtransfers">
-      <i class="bi bi-arrow-left-right"></i> HR Transfers
-    </a>`;
-  }
-  
-  html += `
-    <a href="#" class="nav-link nav-item-link" data-view="training">
-      <i class="bi bi-mortarboard-fill"></i> Sales Academy
-      ${isMember ? '<span id="trainingProgressBadge" class="badge bg-info ms-auto d-none"></span>' : ''}
-    </a>`;
-
-  if (!isMember && !isHR) {
-    html += `
-    <a href="#" class="nav-link nav-item-link" data-view="auditlog">
-      <i class="bi bi-journal-text"></i> Audit Log
-    </a>`;
-  }
-
-  if (isSA) {
-    html += `
-    <a href="#" class="nav-link nav-item-link" data-view="users">
-      <i class="bi bi-people"></i> Manage Team
-    </a>
-    <a href="#" class="nav-link nav-item-link" data-view="campaigns">
-      <i class="bi bi-columns-gap"></i> Campaign Management
-    </a>`;
-  }
-
-  // Campaign Reports — Admin and Super Admin only
-  if (!isMember && !isHR) {
-    html += `
-    <a href="#" class="nav-link nav-item-link" data-view="campaignreports">
-      <i class="bi bi-file-earmark-bar-graph"></i> Campaign Reports
-    </a>`;
-  }
-
-  // CRM Settings — all roles (read-only for non-SA)
-  html += `
-    <a href="#" class="nav-link nav-item-link nav-crm-settings" data-view="crmsettings">
-      <i class="bi bi-gear-fill"></i> CRM Settings
-    </a>`;
-
-  // AI Settings — all roles
-  html += `
-    <a href="#" class="nav-link nav-item-link nav-ai-settings" data-view="aisettings">
-      <i class="bi bi-robot"></i> AI Settings
-    </a>`;
-
-  nav.innerHTML = html;
-
-  document.querySelectorAll(".nav-item-link").forEach((link) => {
-    link.addEventListener("click", (e) => {
-      e.preventDefault();
-      document.querySelectorAll(".nav-item-link").forEach((l) => l.classList.remove("active"));
-      link.classList.add("active");
-      showView(link.dataset.view);
-    });
-  });
-}
-
-function showView(viewName) {
-  document.querySelectorAll(".view-section").forEach((v) => v.classList.add("d-none"));
-  const el = document.getElementById("view-" + viewName);
-  if (el) el.classList.remove("d-none");
-
-  if (viewName === "urgent") {
-    const isMember = CURRENT_USER.role === "member" || CURRENT_USER.role === "hr";
-    const titleEl    = document.getElementById("urgentViewTitle");
-    const subtitleEl = document.getElementById("urgentViewSubtitle");
-    if (titleEl)    titleEl.textContent    = isMember ? "My Urgent Actions" : "Urgent Actions";
-    if (subtitleEl) subtitleEl.textContent = isMember
-      ? "Your leads that need immediate attention."
-      : "All team leads that need immediate attention — sorted by most overdue first.";
-    renderUrgentActions();
-  }
-  if (viewName === "myfollowups") renderMyFollowUps();
-  if (viewName === "report") {
-    initReportControls();
-    const campaignPanel = document.getElementById("campaignReportsPanel");
-    if (campaignPanel && !campaignPanel.classList.contains("d-none")) renderCampaignReportsPanel();
-  }
-  if (viewName === "aisettings")  renderAISettingsView();
-  if (viewName === "crmsettings") renderCRMSettingsView();
-  if (viewName === "leave")       loadLeaveView();
-  if (viewName === "hrtransfers") loadHRTransfersView();
-  if (viewName === "dashboard")   renderDashboardCards();
-  if (viewName === "auditlog")    renderAuditLog();
-  if (viewName === "callaudit")   renderCallAuditDashboard();
-  if (viewName === "campaigns")   renderCampaignsView();
-  if (viewName === "campaignreports") renderCampaignReportsPanel();
-  if (viewName === "training") {
-    if (typeof loadTrainingView === "function") {
-      loadTrainingView();
-    } else {
-      console.error("Sales Academy module (training.js) not loaded");
-      const container = document.getElementById("trainingContentArea");
-      if (container) {
-        container.innerHTML = '<div class="alert alert-danger">Sales Academy module failed to load. Please refresh the page.</div>';
-      }
-    }
-  }
-}
-
-// ── Dashboard Cards ───────────────────────────────────────────
-async function renderDashboardCards() {
-  const grid = document.getElementById("dashboardCardsGrid");
-  const listWrap = document.getElementById("dashboardPendingList");
-  if (!grid) return;
-
-  grid.innerHTML = `<div class="col-12 text-center text-muted py-3">
-    <span class="spinner-border spinner-border-sm me-2"></span>Loading…</div>`;
-
-  const today = new Date().toISOString().slice(0, 10);
-
-  // Parallel fetches
-  const [pendingSnap, assignedSnap, queueSnap, leaveSnapSingle, leaveSnapMultiple] = await Promise.all([
-    leadsRef.where("assignmentPending", "==", true).get(),
-    leadsRef.where("assignedAt", ">=", firebase.firestore.Timestamp.fromDate(
-      new Date(today + "T00:00:00"))).get(),
-    assignmentQueueRef.get(),
-    leavesRef.where("date", "==", today).where("status", "==", "Approved").get(),
-    leavesRef.where("leaveType", "==", "Multiple Days").where("status", "==", "Approved").get()
-  ]);
-
-  // Calculate leave statistics
-  const leavesToday = [];
-  const halfDayToday = [];
-  
-  // Single day leaves
-  leaveSnapSingle.forEach(d => {
-    const leave = d.data();
-    leavesToday.push(leave);
-    if (leave.leaveType === "Half Day Morning" || leave.leaveType === "Half Day Afternoon") {
-      halfDayToday.push(leave);
-    }
-  });
-  
-  // Multiple day leaves that include today
-  leaveSnapMultiple.forEach(d => {
-    const leave = d.data();
-    if (leave.dateFrom && leave.dateTo) {
-      if (today >= leave.dateFrom && today <= leave.dateTo) {
-        leavesToday.push(leave);
-      }
-    }
-  });
-
-  const pendingCount  = pendingSnap.size;
-  const assignedToday = assignedSnap.size;
-  const onLeaveCount  = leavesToday.length;
-  const halfDayCount  = halfDayToday.length;
-  const queueCount    = queueSnap.size;
-
-  // Calculate available members now
-  const todayLeaves = leavesToday;
-  let availableNow = 0;
-  ACTIVE_MEMBERS.forEach(member => {
-    if (isMemberAvailableNow(member.id, todayLeaves)) {
-      availableNow++;
-    }
-  });
-
-  const workingToday = ACTIVE_MEMBERS.length - (onLeaveCount - halfDayCount);
-
-  // ✅ NEW: Calculate follow-up statistics
-  const now = Date.now();
-  let todayFollowups = 0;
-  let dueNowFollowups = 0;
-  let overdueFollowups = 0;
-  let completedTodayFollowups = 0;
-  
-  ALL_LEADS.forEach(lead => {
-    if (lead.hasPendingFollowUp && lead.followUp) {
-      // Check if scheduled for today
-      if (lead.followUp.scheduledDate === today && lead.followUp.status === "Pending") {
-        todayFollowups++;
-        
-        // Check if due now or overdue
-        const scheduledTime = new Date(`${lead.followUp.scheduledDate}T${lead.followUp.scheduledTime}`).getTime();
-        if (scheduledTime <= now) {
-          dueNowFollowups++;
-          if (scheduledTime < now - 15 * 60000) { // overdue by more than 15 min
-            overdueFollowups++;
-          }
-        }
-      }
-      
-      // Check if completed today
-      if (lead.followUp.status === "Completed" && lead.followUp.completedAt) {
-        const completedDate = lead.followUp.completedAt.toDate().toISOString().slice(0, 10);
-        if (completedDate === today) {
-          completedTodayFollowups++;
-        }
-      }
-    }
-  });
-
-  const cards = [
-    { icon: "bi-people-fill",     label: "Working Today",      value: workingToday < 0 ? 0 : workingToday, color: "#1E7A34", tooltip: "Members not on full-day leave" },
-    { icon: "bi-person-dash",     label: "On Leave Today",     value: onLeaveCount,    color: "#B23434", tooltip: "Full day + Half day leaves" },
-    { icon: "bi-clock",           label: "Half Day Leave",     value: halfDayCount,    color: "#C05621", tooltip: "Morning/Afternoon half days" },
-    { icon: "bi-person-check-fill", label: "Available Now",    value: availableNow,    color: "#1E7A34", tooltip: "Available for assignment right now" },
-    { icon: "bi-hourglass-split", label: "Pending Assignment", value: pendingCount,    color: "var(--amber)", tooltip: "Waiting for assignment" },
-    { icon: "bi-calendar2-x",     label: "In Assignment Queue",value: queueCount,      color: "var(--steel)", tooltip: "Queued for gradual dispatch" },
-    // ✅ NEW: Follow-up KPI cards
-    { icon: "bi-calendar-check",  label: "Today's Follow-ups", value: todayFollowups,  color: "#3E6D9C", tooltip: "Follow-ups scheduled for today" },
-    { icon: "bi-alarm",           label: "Due Now",            value: dueNowFollowups, color: "#C05621", tooltip: "Follow-ups due right now" },
-    { icon: "bi-exclamation-triangle", label: "Overdue",       value: overdueFollowups,color: "#B23434", tooltip: "Follow-ups overdue by 15+ min" },
-    { icon: "bi-check-circle",    label: "Completed Today",    value: completedTodayFollowups, color: "#1E7A34", tooltip: "Follow-ups completed today" }
-  ];
-
-  grid.innerHTML = cards.map(c => `
-    <div class="col-6 col-md-4 col-lg-2">
-      <div class="dash-stat-card" title="${c.tooltip}">
-        <div class="dash-stat-icon" style="color:${c.color}">
-          <i class="bi ${c.icon}"></i>
-        </div>
-        <div class="dash-stat-value" style="color:${c.color}">${c.value}</div>
-        <div class="dash-stat-label">${c.label}</div>
-      </div>
-    </div>`).join("");
-
-  // Team Availability Details
-  if (onLeaveCount > 0 || halfDayCount > 0) {
-    const availabilityHtml = `
-    <div class="crm-settings-card mb-4">
-      <div class="crm-settings-card-header">
-        <i class="bi bi-people me-2"></i>Team Availability Today
-      </div>
-      <div class="crm-settings-card-body">
-        <div class="row g-3">
-          ${leavesToday.map(leave => `
-          <div class="col-12 col-md-6 col-lg-4">
-            <div class="availability-card">
-              <div class="d-flex align-items-center gap-2">
-                <div class="availability-icon ${_getLeaveIconClass(leave.leaveType)}">
-                  <i class="bi ${_getLeaveIcon(leave.leaveType)}"></i>
-                </div>
-                <div class="flex-grow-1">
-                  <div class="fw-semibold">${escapeHtml(leave.memberName || "Unknown")}</div>
-                  <div class="small text-muted">${leave.leaveType}</div>
-                  ${leave.reason ? `<div class="small text-muted fst-italic">${escapeHtml(leave.reason)}</div>` : ''}
-                </div>
-              </div>
-            </div>
-          </div>`).join("")}
-        </div>
-      </div>
-    </div>`;
-    listWrap.innerHTML = availabilityHtml;
-  }
-
-  // Pending leads detail list
-  if (pendingCount > 0) {
-    const pendingLeads = [];
-    pendingSnap.forEach(d => pendingLeads.push({ id: d.id, ...d.data() }));
-
-    const pendingHtml = `
-    <div class="crm-settings-card mb-4">
-      <div class="crm-settings-card-header">
-        <i class="bi bi-hourglass-split me-2"></i>Pending Assignment Leads
-      </div>
-      <div class="table-responsive">
-        <table class="table align-middle table-hover mb-0" style="font-size:13.5px">
-          <thead>
-            <tr>
-              <th>Sl.No</th><th>Name</th><th>Phone</th><th>Created</th><th>Reason</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${pendingLeads.map(l => `
-            <tr>
-              <td>${l.slNo}</td>
-              <td>${escapeHtml(l.fullName)}</td>
-              <td>${escapeHtml(l.phoneNumber)}</td>
-              <td>${l.createdAt ? formatDateTime(l.createdAt.toDate()) : "—"}</td>
-              <td><span class="badge badge-pending-assignment">${escapeHtml(l.assignmentReason || "Pending")}</span></td>
-            </tr>`).join("")}
-          </tbody>
-        </table>
-      </div>
-    </div>`;
-    
-    if (onLeaveCount === 0 && halfDayCount === 0) {
-      listWrap.innerHTML = pendingHtml;
-    } else {
-      listWrap.innerHTML += pendingHtml;
-    }
-  } else if (onLeaveCount === 0 && halfDayCount === 0) {
-    listWrap.innerHTML = "";
-  }
-
-  // Module 2 — Campaign Analytics (appended, never replaces the cards above)
-  if (typeof renderCampaignAnalyticsSection === "function") renderCampaignAnalyticsSection();
-}
-
-// Helper functions for leave display
-function _getLeaveIcon(leaveType) {
-  const icons = {
-    "Full Day": "calendar-x",
-    "Half Day Morning": "sunrise",
-    "Half Day Afternoon": "sunset",
-    "Multiple Days": "calendar-range",
-    "Work From Home": "house",
-    "Sick Leave": "thermometer",
-    "Emergency Leave": "exclamation-triangle"
-  };
-  return icons[leaveType] || "calendar-x";
-}
-
-function _getLeaveIconClass(leaveType) {
-  if (leaveType === "Work From Home") return "availability-icon-wfh";
-  if (leaveType === "Half Day Morning" || leaveType === "Half Day Afternoon") return "availability-icon-half";
-  return "availability-icon-leave";
-}
-
-// ── Audit Log ─────────────────────────────────────────────────
-async function renderAuditLog() {
-  const wrap = document.getElementById("auditLogBody");
-  if (!wrap) return;
-
-  wrap.innerHTML = `<div class="text-center text-muted py-4">
-    <span class="spinner-border spinner-border-sm me-2"></span>Loading…</div>`;
-
-  try {
-    const snap = await auditLogRef.orderBy("timestamp", "desc").limit(200).get();
-    if (snap.empty) {
-      wrap.innerHTML = `<p class="text-muted">No audit entries yet.</p>`;
+    // Route guard: restricted users can only see the dashboard (access overlay)
+    if (Auth.isAccessRestricted() && !Auth.isAdmin()) {
+      _showAccessOverlay();
+      UI.closeAllModals();
+      UI.switchTab('dashboard');
       return;
     }
 
-    const rows = [];
-    snap.forEach(d => rows.push({ id: d.id, ...d.data() }));
+    // Accounts tab is admin-only
+    if (tab === 'accounts' && !Auth.isAdmin()) return;
+    
+    // Campaigns and Meta Catalog tabs are admin-only
+    if (tab === 'campaigns' && !Auth.isAdmin()) return;
+    if (tab === 'campaign-detail' && !Auth.isAdmin()) return;
+    if (tab === 'meta-catalog' && !Auth.isAdmin()) return;
 
-    wrap.innerHTML = `
-    <div class="table-card">
-      <div class="table-responsive">
-        <table class="table align-middle table-hover mb-0" style="font-size:13px">
-          <thead>
-            <tr>
-              <th>Date &amp; Time</th>
-              <th>Lead #</th>
-              <th>Action</th>
-              <th>Reason</th>
-              <th>Actor</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows.map(r => `
-            <tr>
-              <td class="text-nowrap">${r.timestamp ? formatDateTime(r.timestamp.toDate()) : "—"}</td>
-              <td>${r.slNo || "—"}</td>
-              <td><span class="badge audit-badge-${_auditBadgeClass(r.action)}">${escapeHtml(r.action)}</span></td>
-              <td>${escapeHtml(r.reason || "—")}</td>
-              <td>${escapeHtml(r.actor || "System")}</td>
-            </tr>`).join("")}
-          </tbody>
-        </table>
-      </div>
-    </div>`;
-  } catch (err) {
-    console.error("Audit log load failed:", err);
-    wrap.innerHTML = `<p class="text-danger">Failed to load audit log.</p>`;
+    UI.closeAllModals();
+    UI.switchTab(tab);
+
+    // Lazy-load tab data
+    if (tab === 'dashboard') Dashboard.loadStats();
+    if (tab === 'history')   History.render();
+    if (tab === 'audit')     Audit.renderHistory();
+    if (tab === 'auditHistory') AuditHistory.render();
+    if (tab === 'settings')  Settings.render();
+    if (tab === 'accounts')  Accounts.render();
+    if (tab === 'generate')  { 
+      Generator.checkForm(); 
+      Generator.initSeoGenerator();
+    }
+    if (tab === 'products')  Marketing.renderProducts();
+    if (tab === 'campaigns') Marketing.renderCampaigns();
+    if (tab === 'meta-catalog') Marketing.renderMetaCatalog();
+    if (tab === 'campaign-detail') Marketing.renderCampaignDetail();
+  },
+
+  setLang(lang) {
+    this._lang = lang;
+    ['en', 'hi', 'te'].forEach(l =>
+      document.getElementById(`lang-${l}`)?.classList.toggle('active', l === lang)
+    );
+    const sel = document.getElementById('prod-lang');
+    if (sel) sel.value = lang;
   }
-}
+};
 
-function _auditBadgeClass(action) {
-  if (!action) return "info";
-  const a = action.toLowerCase();
-  if (a.includes("assigned immediately") || a.includes("office opening")) return "success";
-  if (a.includes("pending"))   return "warning";
-  if (a.includes("skipped"))   return "danger";
-  if (a.includes("holiday"))   return "secondary";
-  return "info";
-}
+window.App = App;
 
-function requestNotificationPermission() {
-  if ("Notification" in window && Notification.permission === "default") {
-    Notification.requestPermission();
+// ── APPLY SAVED THEME IMMEDIATELY (before auth) ───────────────
+// This runs synchronously before any async auth work so there is
+// no theme flash. It does NOT show any protected content.
+UI.initTheme();
+
+// ── AUTH STATE OBSERVER ───────────────────────────────────────
+// onAuthStateChanged is the ONLY entry point into the app.
+// Every rendering decision flows from here.
+Auth.onAuthReady(async user => {
+  App._authConfirmed = true;
+
+  if (user) {
+    _setInitMessage('Verifying account status...');
+    await _enterApp();
+  } else {
+    _dismissInitScreen();
+    _showLandingPage();
   }
-}
-
-function toast(message, type = "primary") {
-  const container = document.getElementById("toastContainer");
-  const id = "t" + Date.now();
-  const html = `
-    <div id="${id}" class="toast align-items-center text-bg-${type} border-0" role="alert">
-      <div class="d-flex">
-        <div class="toast-body">${message}</div>
-        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
-      </div>
-    </div>`;
-  container.insertAdjacentHTML("beforeend", html);
-  const toastEl = new bootstrap.Toast(document.getElementById(id), { delay: 8000 });
-  toastEl.show();
-}
-
-function browserNotify(title, body) {
-  if ("Notification" in window && Notification.permission === "granted") {
-    new Notification(title, { body, icon: "" });
-  }
-}
-
-document.addEventListener("DOMContentLoaded", () => {
-  const logoutBtn = document.getElementById("logoutBtn");
-  if (logoutBtn) logoutBtn.addEventListener("click", logout);
-  initApp();
 });
+
+// ── ENTER APP FLOW ────────────────────────────────────────────
+async function _enterApp() {
+  const ud   = Auth.getUserDoc() || {};
+  const user = Auth.getUser();
+
+  // ── Admin-only element visibility ──
+  document.querySelectorAll('.admin-only').forEach(el => {
+    el.style.display = Auth.isAdmin() ? '' : 'none';
+  });
+
+  // ── Apply user theme ──
+  UI.applyTheme(ud.theme || 'light');
+
+  // ── Sync language ──
+  App.setLang(ud.language || 'en');
+
+  // ── Default provider ──
+  const provSel = document.getElementById('prod-provider');
+  if (provSel && ud.defaultProvider) provSel.value = ud.defaultProvider;
+
+  // ── Populate sidebar ──
+  const name  = ud.name || user.displayName || user.email?.split('@')[0] || 'User';
+  const email = user.email || '';
+  _setText('sidebar-name',  name);
+  _setText('sidebar-email', email);
+  _setText('sidebar-av',    name[0]?.toUpperCase() || 'U');
+
+  // ── Reveal the app shell ──
+  // Setting this attribute is the only place the CSS allows .page-app to display.
+  document.body.setAttribute('data-app-ready', 'true');
+  document.body.classList.add('app-ready');
+
+  const authPage = document.getElementById('page-auth');
+  const appPage  = document.getElementById('page-app');
+  if (authPage) { authPage.classList.remove('active'); authPage.style.display = 'none'; }
+  if (appPage)  appPage.classList.add('active');
+  if (appPage)  appPage.style.display = 'flex';
+
+  // ── Dismiss init screen ──
+  _dismissInitScreen();
+
+  // ── Route based on approval status ──
+  if (Auth.isAccessRestricted() && !Auth.isAdmin()) {
+    _showAccessOverlay();
+    UI.switchTab('dashboard');   // show tab structure but overlaid
+    return;
+  }
+
+  _hideAccessOverlay();
+
+  // First visit with no API key: go straight to settings
+  const hasKey = ud.apiKey || ud.geminiKey || ud.openrouterKey;
+  if (!hasKey) {
+    App.go('settings');
+    UI.showToast('Welcome! Add your Groq API key in Settings to start generating SEO.');
+  } else {
+    App.go('dashboard');
+  }
+
+  // One-time welcome toast set during login/register
+  const welcome = sessionStorage.getItem('az-welcome');
+  if (welcome) { UI.showToast(welcome); sessionStorage.removeItem('az-welcome'); }
+
+  // Init drag-drop
+  Generator.initDragDrop();
+}
+
+// ── SHOW PUBLIC LANDING PAGE ─────────────────────────────────
+function _showLandingPage() {
+  const appPage = document.getElementById('page-app');
+  if (appPage) { appPage.classList.remove('active'); appPage.style.display = 'none'; }
+
+  const authPage = document.getElementById('page-auth');
+  if (authPage) { authPage.classList.remove('active'); authPage.style.display = 'none'; }
+
+  const publicPage = document.getElementById('page-public');
+  if (publicPage) { publicPage.classList.add('active'); publicPage.style.display = 'block'; }
+
+  document.body.removeAttribute('data-app-ready');
+  document.body.classList.remove('app-ready');
+}
+
+// ── SHOW AUTH PAGE ────────────────────────────────────────────
+function _showAuthPage() {
+  const appPage = document.getElementById('page-app');
+  if (appPage) { appPage.classList.remove('active'); appPage.style.display = 'none'; }
+
+  const publicPage = document.getElementById('page-public');
+  if (publicPage) { publicPage.classList.remove('active'); publicPage.style.display = 'none'; }
+
+  document.body.removeAttribute('data-app-ready');
+  document.body.classList.remove('app-ready');
+
+  const authPage = document.getElementById('page-auth');
+  if (authPage) { authPage.classList.add('active'); authPage.style.display = 'block'; }
+
+  Auth.showView('login');
+}
+
+// ── INIT SCREEN HELPERS ───────────────────────────────────────
+function _setInitMessage(msg) {
+  const el = document.getElementById('init-message');
+  if (el) el.textContent = msg;
+}
+
+function _dismissInitScreen() {
+  const screen = document.getElementById('init-screen');
+  if (!screen) return;
+  screen.classList.add('hide');
+  // Remove from DOM after transition so it cannot be unhidden via devtools
+  setTimeout(() => screen.remove(), 350);
+}
+
+// ── ACCESS OVERLAY ────────────────────────────────────────────
+function _showAccessOverlay() {
+  const overlay = document.getElementById('access-overlay');
+  const msg     = document.getElementById('access-msg');
+  if (overlay) overlay.style.display = 'flex';
+  if (msg)     msg.textContent = Auth.getAccessMessage();
+}
+
+function _hideAccessOverlay() {
+  const el = document.getElementById('access-overlay');
+  if (el) el.style.display = 'none';
+}
+
+// ── KEYBOARD ──────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  const authPage  = document.getElementById('page-auth');
+  const loginView = document.getElementById('view-login');
+  if (authPage?.classList.contains('active') && loginView?.classList.contains('active')) {
+    Auth.login();
+  }
+});
+
+// ── CLICK OUTSIDE OVERLAY MODAL ───────────────────────────────
+document.addEventListener('click', e => {
+  const target = e.target;
+  if (target instanceof HTMLElement && target.classList.contains('overlay') && target.id) {
+    UI.closeModal(target.id);
+  }
+});
+
+// ── HELPER ────────────────────────────────────────────────────
+function _setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
