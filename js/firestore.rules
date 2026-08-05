@@ -163,6 +163,12 @@ service cloud.firestore {
       allow create: if isStaff(); // Admins create notifications
     }
 
+    // ── PERMISSION SETTINGS ────────────────────────────────
+    match /permissionSettings/{docId} {
+      allow read: if isSignedIn() && myUserDoc().data.active == true;
+      allow create, update, delete: if isSuperAdmin();
+    }
+
     // ── CAMPAIGNS (Campaign Form Builder) ─────────────────────
     // Read: every active authenticated user (Admins need the list for
     // the Add Lead "Campaign Type" dropdown; Members see campaignName

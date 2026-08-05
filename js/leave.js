@@ -302,6 +302,8 @@ async function renderEmployeeLeaveView() {
 }
 
 async function submitLeave(e) {
+  if (!requirePermission("leave.apply")) return;
+
   e.preventDefault();
 
   const leaveType = document.getElementById("leaveType")?.value;
@@ -369,6 +371,7 @@ async function submitLeave(e) {
 }
 
 async function approveLeave(id) {
+  if (!requirePermission("leave.approve")) return;
   if (!confirm("Approve this leave request?")) return;
 
   try {
@@ -397,6 +400,8 @@ async function approveLeave(id) {
 }
 
 async function rejectLeave(id) {
+  if (!requirePermission("leave.reject")) return;
+
   const rejectionReason = prompt("Enter reason for rejection (optional):");
   if (rejectionReason === null) return; // Cancelled
 

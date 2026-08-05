@@ -49,6 +49,11 @@ const addUserForm = document.getElementById("addUserForm");
 if (addUserForm) {
   addUserForm.addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (!hasPermission("manageTeam.createUser")) {
+      toast("You don't have permission to create team members.", "warning");
+      return;
+    }
+
     const btn = document.getElementById("addUserSubmitBtn");
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Adding...';
@@ -103,6 +108,11 @@ if (addUserForm) {
 
 // ---------------- ROLE / ACTIVE TOGGLE ----------------
 async function changeUserRole(uid, newRole) {
+  if (!hasPermission("manageTeam.changeRole")) {
+    toast("You don't have permission to change roles.", "warning");
+    return;
+  }
+
   try {
     await usersRef.doc(uid).update({ role: newRole });
     toast("Role updated.", "success");
@@ -115,6 +125,11 @@ async function changeUserRole(uid, newRole) {
 }
 
 async function toggleUserActive(uid, makeActive) {
+  if (!hasPermission("manageTeam.activateDeactivate")) {
+    toast("You don't have permission to change user status.", "warning");
+    return;
+  }
+
   try {
     await usersRef.doc(uid).update({ active: makeActive });
     toast(makeActive ? "User activated." : "User deactivated.", "success");

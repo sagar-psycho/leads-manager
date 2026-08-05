@@ -753,6 +753,8 @@ async function assignLeadToHRDirectly(leadId, leadData, noteText, approvalMetada
 }
 
 async function approveHRTransfer(leadId) {
+  if (!requirePermission("hrTransfers.approve")) return;
+
   try {
     const leadDoc = await leadsRef.doc(leadId).get();
     if (!leadDoc.exists) return;
@@ -766,6 +768,8 @@ async function approveHRTransfer(leadId) {
 }
 
 async function rejectHRTransfer(leadId) {
+  if (!requirePermission("hrTransfers.reject")) return;
+
   const reason = window.prompt("Enter rejection reason for this HR transfer request:");
   if (!reason) {
     toast("Rejection reason is required.", "warning");
@@ -815,7 +819,7 @@ async function notifyAdminsForHRTransfer(lead) {
 }
 
 async function renderHRTransferRequests() {
-  if (CURRENT_USER.role !== "admin" && CURRENT_USER.role !== "superadmin") return;
+  if (!hasPermission("hrTransfers.view")) return;
   const section = document.getElementById("view-hrtransfers");
   if (!section) return;
 
@@ -838,8 +842,8 @@ async function renderHRTransferRequests() {
       <td>${lead.transferRequestedAt ? new Date(lead.transferRequestedAt.toDate()).toLocaleString() : "-"}</td>
       <td>${lead.transferRequestNote || "-"}</td>
       <td class="text-nowrap">
-        <button class="btn btn-sm btn-success me-1" onclick="approveHRTransfer('${lead.id}')">Approve</button>
-        <button class="btn btn-sm btn-danger" onclick="rejectHRTransfer('${lead.id}')">Reject</button>
+        ${hasPermission("hrTransfers.approve") ? `<button class="btn btn-sm btn-success me-1" onclick="approveHRTransfer('${lead.id}')">Approve</button>` : ""}
+        ${hasPermission("hrTransfers.reject") ? `<button class="btn btn-sm btn-danger" onclick="rejectHRTransfer('${lead.id}')">Reject</button>` : ""}
       </td>
     </tr>
   `).join("");
@@ -872,6 +876,8 @@ async function renderHRTransferRequests() {
 
 // ---------------- CREATE LEAD (Admin / Super Admin) ----------------
 async function createLead(formData) {
+  if (!requirePermission("leads.create")) return;
+
   // Delegate to Smart Assignment engine in assignment.js
   await smartCreateLead(formData);
 }
@@ -1239,6 +1245,8 @@ async function executeStatusUpdateWithFollowUp(leadId, newStatus, noteText, foll
 
 // ---------------- UPDATE STATUS / NOTE (with history) ----------------
 async function updateLeadStatus(leadId, newStatus, noteText) {
+  if (!requirePermission("leads.changeStatus")) return;
+
   const leadRef = leadsRef.doc(leadId);
   const now = firebase.firestore.Timestamp.now();
 
@@ -1377,6 +1385,8 @@ async function updateLeadStatus(leadId, newStatus, noteText) {
 
 // ---------------- DELETE / EDIT (Super Admin only) ----------------
 async function deleteLead(leadId) {
+  if (!requirePermission("leads.delete")) return;
+
   const lead = ALL_LEADS.find((l) => l.id === leadId);
   const historyEntry = {
     text: "Lead deleted by Super Admin",
@@ -1668,6 +1678,10 @@ async function navigateToPage(page, direction = "next") {
   document.querySelector(".table-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+function canManualAssignLead() {
+  return !!CURRENT_USER && (CURRENT_USER.role === "superadmin" || hasPermission("leads.assign") || hasPermission("leads.reassign"));
+}
+
 // ---------------- RENDER: LEADS TABLE ----------------
 function renderLeadsTable() {
   const tbody = document.getElementById("leadsTableBody");
@@ -1691,8 +1705,8 @@ function renderLeadsTable() {
   const prefs = getUserTablePreferences();
   const showCampaign = prefs.showCampaign !== false;
   const showAssigned = prefs.showAssigned !== false;
-  const canEditDelete = CURRENT_USER.role === "superadmin";
-  const canManualAssign = CURRENT_USER.role === "admin" || CURRENT_USER.role === "superadmin";
+  const canEditDelete = CURRENT_USER.role === "superadmin" || hasPermission("leads.delete");
+  const canManualAssign = canManualAssignLead();
   const pendingRows = rows.filter((lead) => !!lead.assignmentPending);
 
   tbody.innerHTML = rows.map((l) => {
@@ -1810,7 +1824,7 @@ function refreshManualAssignmentToolbar({ pendingRows = [] } = {}) {
   const toolbar = document.getElementById("manualAssignmentToolbar");
   const counter = document.getElementById("manualSelectionCounter");
   const selectAllPendingLeads = document.getElementById("selectAllPendingLeads");
-  const canManualAssign = CURRENT_USER.role === "admin" || CURRENT_USER.role === "superadmin";
+  const canManualAssign = canManualAssignLead();
 
   if (!toolbar || !counter || !selectAllPendingLeads) return;
 
@@ -1858,8 +1872,8 @@ async function openManualLeadAssignmentModal(leadId) {
     return;
   }
 
-  if (!(CURRENT_USER.role === "admin" || CURRENT_USER.role === "superadmin")) {
-    toast("Manual assignment is restricted to Admin and Super Admin.", "danger");
+  if (!canManualAssignLead()) {
+    toast("You don't have permission to manually assign leads.", "warning");
     return;
   }
 
@@ -1881,6 +1895,11 @@ async function openManualLeadAssignmentModal(leadId) {
 }
 
 function openBulkManualAssignmentModal() {
+  if (!canManualAssignLead()) {
+    toast("You don't have permission to manually assign leads.", "warning");
+    return;
+  }
+
   const selected = Array.from(PENDING_MANUAL_SELECTIONS);
   if (selected.length === 0) {
     toast("Select one or more pending leads first.", "warning");

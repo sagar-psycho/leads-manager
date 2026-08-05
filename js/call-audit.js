@@ -159,7 +159,7 @@
   // ── Check if user can mark "Not Interested" directly ───────────
   window.canDirectlyMarkNotInterested = function() {
     var user = getCurrentUser();
-    return user.role === "admin" || user.role === "superadmin";
+    return user.role === "superadmin" || (user.role === "admin" && hasPermission("callAudit.approve"));
   };
 
   // ── Intercept "Not Interested" status change ───────────────────

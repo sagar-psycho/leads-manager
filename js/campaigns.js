@@ -252,6 +252,8 @@ function openCampaignModal(campaignId) {
 
 async function saveCampaign() {
   const id = document.getElementById("campaignId").value;
+  if (!id && !requirePermission("campaignManagement.create")) return;
+  if (id && !requirePermission("campaignManagement.edit")) return;
   const name = document.getElementById("campaignName").value.trim();
   const active = document.getElementById("campaignActive").checked;
   const defaultAssignmentRole = document.getElementById("campaignDefaultAssignmentRole").value;
@@ -287,6 +289,8 @@ async function saveCampaign() {
 }
 
 async function toggleCampaignActive(id, makeActive) {
+  if (!requirePermission("campaignManagement.activateDeactivate")) return;
+
   const c = ALL_CAMPAIGNS.find(x => x.id === id);
   if (c && getCampaignStatus(c) === "archived") {
     toast("Archived campaigns are read-only. Restore it first.", "warning");
@@ -303,6 +307,8 @@ async function toggleCampaignActive(id, makeActive) {
 
 // ── Archive / Restore (soft-delete — data is never removed) ──
 function confirmArchiveCampaign(id) {
+  if (!requirePermission("campaignManagement.archive")) return;
+
   const c = ALL_CAMPAIGNS.find(x => x.id === id);
   if (!c) return;
   const leadCount = _leadsForCampaign(id).length;

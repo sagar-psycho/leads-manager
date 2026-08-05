@@ -241,6 +241,11 @@
         <!-- Rendered dynamically by settings.js → renderCRMSettingsView() -->
       </section>
 
+      <!-- PERMISSION SETTINGS VIEW (Super Admin only) -->
+      <section id="view-permissions" class="view-section d-none">
+        <!-- Rendered dynamically by permissions.js → renderPermissionSettingsView() -->
+      </section>
+
       <!-- AI SETTINGS VIEW (All roles) -->
       <section id="view-aisettings" class="view-section d-none">
         <!-- Rendered dynamically by ai.js → renderAISettingsView() -->
@@ -1302,6 +1307,7 @@
   <script src="js/users.js"></script>
   <script src="js/report.js"></script>
   <script src="js/campaign-utils.js"></script>
+  <script src="js/permissions.js"></script>
   <script src="js/campaign-analytics.js"></script>
   <script src="js/campaign-reports.js"></script>
   <script src="js/pitch.js"></script>
@@ -1313,7 +1319,7 @@
     const addLeadObserver = setInterval(() => {
       if (window.CURRENT_USER) {
         clearInterval(addLeadObserver);
-        if (CURRENT_USER.role === "admin" || CURRENT_USER.role === "superadmin") {
+        if (CURRENT_USER.role === "superadmin" || (window.hasPermission && window.hasPermission("leads.create"))) {
           document.getElementById("addLeadBtnWrap").innerHTML = `
             <button class="btn btn-brand" data-bs-toggle="modal" data-bs-target="#addLeadModal">
               <i class="bi bi-plus-lg"></i> Add Lead

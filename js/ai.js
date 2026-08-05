@@ -1,273 +1,385 @@
-/**
- * ai.js - Multi-provider AI layer
- * Providers: Groq, Google Gemini, OpenRouter
- * Only change model/endpoint here - nothing else needs updating.
- */
+// ============================================================
+// AI.JS — AI Settings: secure per-user Groq API key storage,
+//         test connection, and shared Groq call helper used by
+//         ALL AI features in the CRM (pitch, reports, etc.)
+//
+// API keys are stored in Firestore under users/{uid}.aiSettings
+// They are NEVER hardcoded, NEVER in source control.
+// ============================================================
 
-// ── MODEL CONFIG ─────────────────────────────────────────────
-const MODELS = {
-  groq:            'llama-3.3-70b-versatile',
-  groqVision:      'llama-3.2-90b-vision-preview',
-  groqFallback:    'llama-3.1-8b-instant',
-  gemini:          'gemini-1.5-flash',
-  openrouter:      'meta-llama/llama-3.3-70b-instruct:free',
-  openrouterVision:'google/gemini-flash-1.5'
+const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
+
+const AI_MODELS = [
+  { value: "llama-3.3-70b-versatile",      label: "Llama 3.3 70B Versatile (Recommended)" },
+  { value: "llama-3.1-8b-instant",          label: "Llama 3.1 8B Instant (Fastest)" },
+  { value: "deepseek-r1-distill-llama-70b", label: "DeepSeek R1 Distill Llama 70B" }
+];
+
+const AI_DEFAULT_MODEL = "llama-3.3-70b-versatile";
+
+// In-memory cache — updated on save/delete, no logout required
+let _aiSettings = {
+  groqApiKey: "",
+  model: AI_DEFAULT_MODEL,
+  lastUpdated: null
 };
 
-const ENDPOINTS = {
-  groq:        'https://api.groq.com/openai/v1/chat/completions',
-  gemini:      'https://generativelanguage.googleapis.com/v1beta/models',
-  openrouter:  'https://openrouter.ai/api/v1/chat/completions'
-};
-
-// ── API KEY VALIDATION ────────────────────────────────────────
-export function validateKey(key, provider) {
-  const k = (key || '').trim();
-  if (!k) return false;
-  if (provider === 'groq' && !k.startsWith('gsk_')) return false;
-  return true;
-}
-
-export async function verifyGeminiKey(apiKey) {
-  const key = (apiKey || '').trim();
-  if (!key) throw new Error('Please enter your Gemini API key.');
-
-  const testMessages = [{ role: 'user', content: 'Verify Gemini API key.' }];
+// ── Bootstrap: load AI settings for the logged-in user ──────
+async function loadAISettings() {
   try {
-    await _callGemini(testMessages, key, { temperature: 0, maxTokens: 1, timeout: 20000 });
-    return true;
-  } catch (err) {
-    const message = String(err?.message || err || '').toLowerCase();
-    if (message.includes('abort') || message.includes('timeout') || message.includes('failed to fetch') || message.includes('network')) {
-      throw new Error('Unable to connect to Gemini. Please check your internet connection and try again.');
-    }
-    throw new Error('Unable to authenticate with Gemini. Please check your API key.');
-  }
-}
-
-// ── MAIN DISPATCH ─────────────────────────────────────────────
-/**
- * @param {Array}  messages      - OpenAI-style messages array
- * @param {string} apiKey        - Provider API key
- * @param {string} provider      - 'groq' | 'gemini' | 'openrouter'
- * @param {Object} opts          - { temperature, maxTokens, imageBase64, imageMime }
- */
-export async function callAI(messages, apiKey, provider = 'groq', opts = {}) {
-  if (!validateKey(apiKey, provider)) {
-    throw new AiError('invalid_key', provider);
-  }
-  switch (provider) {
-    case 'groq':        return _callGroq(messages, apiKey, opts);
-    case 'gemini':      return _callGemini(messages, apiKey, opts);
-    case 'openrouter':  return _callOpenRouter(messages, apiKey, opts);
-    default: throw new AiError('unknown_provider', provider);
-  }
-}
-
-// ── GROQ ──────────────────────────────────────────────────────
-async function _callGroq(messages, apiKey, opts = {}) {
-  const hasImage = !!(opts.imageBase64);
-  const model = opts.model || (hasImage ? MODELS.groqVision : MODELS.groq);
-
-  // When an image is provided, convert the last user message to a
-  // multimodal content array (text + image_url in base64 data URI form)
-  const builtMessages = hasImage
-    ? _injectImageGroq(messages, opts.imageBase64, opts.imageMime || 'image/jpeg')
-    : messages;
-
-  const res = await _fetch(ENDPOINTS.groq, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model,
-      messages: builtMessages,
-      temperature: opts.temperature ?? 0.9,
-      top_p:       opts.top_p       ?? 0.95,
-      max_tokens:  opts.maxTokens   || 1600,
-      response_format: { type: 'json_object' }
-    })
-  }, opts.timeout || 40000);
-
-  const data = await res.json();
-  if (!res.ok || data.error) {
-    const serverMessage = data.error?.message || `Groq request failed with HTTP ${res.status}`;
-    const msg = String(serverMessage).toLowerCase();
-
-    // Vision-capability mismatch: retry using the same user text prompt with the
-    // supported text model, but do not send image content on the fallback pass.
-    if (hasImage && model !== MODELS.groqFallback && (
-      msg.includes('does not exist') ||
-      msg.includes('no access') ||
-      msg.includes('vision') ||
-      msg.includes('image') ||
-      msg.includes('multimodal') ||
-      msg.includes('not supported') ||
-      msg.includes('unsupported')
-    )) {
-      console.warn('[AI] Groq vision model unavailable, retrying with text-only fallback');
-      return _callGroq(messages, apiKey, {
-        ...opts,
-        model: MODELS.groqFallback,
-        imageBase64: null
-      });
-    }
-
-    throw new AiError('api_error', 'groq', serverMessage);
-  }
-
-  return data.choices?.[0]?.message?.content || '';
-}
-
-/** Build multimodal message array for Groq (OpenAI vision format) */
-function _injectImageGroq(messages, imageBase64, imageMime) {
-  return messages.map((msg, i) => {
-    // Attach image only to the last user message
-    if (i === messages.length - 1 && msg.role === 'user') {
-      return {
-        role: 'user',
-        content: [
-          {
-            type: 'image_url',
-            image_url: { url: `data:${imageMime};base64,${imageBase64}` }
-          },
-          { type: 'text', text: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content) }
-        ]
+    const doc = await usersRef.doc(CURRENT_USER.uid).get();
+    const data = doc.data();
+    if (data && data.aiSettings) {
+      _aiSettings = {
+        groqApiKey: data.aiSettings.groqApiKey || "",
+        model:      data.aiSettings.model      || AI_DEFAULT_MODEL,
+        lastUpdated: data.aiSettings.lastUpdated || null
       };
     }
-    return msg;
-  });
-}
-
-// ── GEMINI ────────────────────────────────────────────────────
-async function _callGemini(messages, apiKey, opts = {}) {
-  const model    = opts.model || MODELS.gemini; // gemini-1.5-flash has vision built-in
-  const endpoint = `${ENDPOINTS.gemini}/${model}:generateContent?key=${apiKey}`;
-
-  // Build Gemini parts — add inline image first if provided
-  const parts = [];
-  if (opts.imageBase64) {
-    parts.push({
-      inline_data: {
-        mime_type: opts.imageMime || 'image/jpeg',
-        data: opts.imageBase64
-      }
-    });
+  } catch (err) {
+    console.error("Failed to load AI settings:", err);
   }
-  // Add text content from messages
-  messages.forEach(m => {
-    const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-    parts.push({ text });
-  });
-
-  const res = await _fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts }],
-      generationConfig: {
-        temperature:     opts.temperature ?? 0.9,
-        maxOutputTokens: opts.maxTokens   || 1600
-      }
-    })
-  }, opts.timeout || 40000);
-
-  const data = await res.json();
-  if (data.error) throw new AiError('api_error', 'gemini', data.error.message);
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
 
-// ── OPENROUTER ────────────────────────────────────────────────
-async function _callOpenRouter(messages, apiKey, opts = {}) {
-  const hasImage = !!(opts.imageBase64);
-  const model    = opts.model || (hasImage ? MODELS.openrouterVision : MODELS.openrouter);
+// ── Public getter used by pitch.js and any future AI feature ─
+function getAISettings() {
+  return { ..._aiSettings };
+}
 
-  // Inject image into the last user message (OpenAI vision format)
-  const builtMessages = hasImage
-    ? _injectImageGroq(messages, opts.imageBase64, opts.imageMime || 'image/jpeg')
-    : messages;
+// ── Core Groq call — used by ALL AI features ─────────────────
+// Throws if key is missing or API returns an error.
+async function callGroq(messages, { temperature = 0.75, maxTokens = 1200 } = {}) {
+  const { groqApiKey, model } = _aiSettings;
 
-  const res = await _fetch(ENDPOINTS.openrouter, {
-    method: 'POST',
+  if (!groqApiKey) {
+    throw new AIKeyMissingError();
+  }
+
+  const resp = await fetch(GROQ_API_URL, {
+    method: "POST",
     headers: {
-      'Content-Type':  'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-      'HTTP-Referer':  'https://abrazylo.github.io',
-      'X-Title':       'Abra Zylo SEO Portal'
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${groqApiKey}`
     },
     body: JSON.stringify({
       model,
-      messages:    builtMessages,
-      temperature: opts.temperature ?? 0.9,
-      max_tokens:  opts.maxTokens   || 1600,
-      response_format: { type: 'json_object' }
+      messages,
+      temperature,
+      max_tokens: maxTokens
     })
-  }, opts.timeout || 40000);
+  });
 
-  const data = await res.json();
-  if (data.error) throw new AiError('api_error', 'openrouter', data.error.message);
-  return data.choices?.[0]?.message?.content || '';
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "");
+    throw new Error(`Groq API error ${resp.status}: ${body}`);
+  }
+
+  const data = await resp.json();
+  return data.choices?.[0]?.message?.content?.trim() || "";
 }
 
-// ── FETCH WITH TIMEOUT ────────────────────────────────────────
-async function _fetch(url, options, timeoutMs) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+// ── Custom error so callers can show the "configure key" UI ──
+class AIKeyMissingError extends Error {
+  constructor() {
+    super("Groq API key not configured.");
+    this.name = "AIKeyMissingError";
+  }
+}
+
+// ── Check whether to show the first-login welcome modal ──────
+async function checkAISetupPrompt() {
+  const doc  = await usersRef.doc(CURRENT_USER.uid).get();
+  const data = doc.data();
+  const hasKey = data?.aiSettings?.groqApiKey?.trim().length > 0;
+  if (!hasKey) {
+    const modal = bootstrap.Modal.getOrCreateInstance(
+      document.getElementById("aiWelcomeModal")
+    );
+    modal.show();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// AI SETTINGS PAGE LOGIC
+// ─────────────────────────────────────────────────────────────
+
+function renderAISettingsView() {
+  const wrap = document.getElementById("view-aisettings");
+  if (!wrap) return;
+
+  const { groqApiKey, model, lastUpdated } = _aiSettings;
+  const hasKey   = !!groqApiKey;
+  const maskedKey = hasKey ? groqApiKey.slice(0, 4) + "•".repeat(Math.min(36, groqApiKey.length - 4)) : "";
+  const modelOptions = AI_MODELS.map(m =>
+    `<option value="${m.value}" ${m.value === model ? "selected" : ""}>${m.label}</option>`
+  ).join("");
+
+  const lastUpdatedLabel = lastUpdated
+    ? (lastUpdated.toDate ? lastUpdated.toDate() : new Date(lastUpdated))
+        .toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
+    : null;
+
+  wrap.innerHTML = `
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <div>
+        <h1 class="page-title"><i class="bi bi-robot me-2"></i>AI Settings</h1>
+        <p class="page-subtitle">Configure your personal Groq API key. Your key is stored securely and never shared.</p>
+      </div>
+    </div>
+
+    <div class="row g-3">
+
+      <!-- ── API Key Card ── -->
+      <div class="col-12 col-lg-7">
+        <div class="ai-settings-card">
+          <div class="ai-settings-card-header">
+            <i class="bi bi-key-fill me-2"></i>Groq API Key
+          </div>
+          <div class="ai-settings-card-body">
+
+            <!-- Status banner -->
+            <div id="aiKeyStatus" class="ai-status-badge mb-3 ${hasKey ? "ai-status-connected" : "ai-status-unconfigured"}">
+              <i class="bi ${hasKey ? "bi-check-circle-fill" : "bi-x-circle-fill"} me-2"></i>
+              ${hasKey ? "Connected" : "Not Configured"}
+              ${lastUpdatedLabel ? `<span class="ai-status-updated ms-auto">Last updated: ${lastUpdatedLabel}</span>` : ""}
+            </div>
+
+            <!-- Key input row -->
+            <label class="form-label fw-semibold">API Key</label>
+            <div class="input-group mb-1">
+              <input type="password"
+                     id="aiApiKeyInput"
+                     class="form-control font-monospace"
+                     placeholder="${hasKey ? maskedKey : "gsk_..."}"
+                     value="${hasKey ? groqApiKey : ""}"
+                     autocomplete="off"
+                     spellcheck="false">
+              <button class="btn btn-outline-secondary"
+                      type="button"
+                      id="aiKeyToggleBtn"
+                      onclick="toggleApiKeyVisibility()"
+                      title="Show / Hide">
+                <i class="bi bi-eye" id="aiKeyToggleIcon"></i>
+              </button>
+              <button class="btn btn-outline-secondary"
+                      type="button"
+                      onclick="copyApiKey()"
+                      title="Copy API Key"
+                      ${!hasKey ? "disabled" : ""}>
+                <i class="bi bi-clipboard" id="aiKeyCopyIcon"></i>
+              </button>
+            </div>
+            <div class="form-text mb-3">
+              Get your free key at
+              <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">
+                console.groq.com/keys
+              </a>
+            </div>
+
+            <!-- Model selector -->
+            <label class="form-label fw-semibold">AI Model</label>
+            <select id="aiModelSelect" class="form-select mb-3">
+              ${modelOptions}
+            </select>
+
+            <!-- Action buttons -->
+            <div class="d-flex flex-wrap gap-2">
+              <button class="btn btn-brand" onclick="saveAISettings()">
+                <i class="bi bi-floppy-fill me-1"></i>
+                ${hasKey ? "Update Settings" : "Save Settings"}
+              </button>
+              <button class="btn btn-outline-primary" onclick="testAIConnection()">
+                <i class="bi bi-wifi me-1"></i>Test Connection
+              </button>
+              ${hasKey ? `
+              <button class="btn btn-outline-danger" onclick="deleteApiKey()">
+                <i class="bi bi-trash me-1"></i>Delete API Key
+              </button>` : ""}
+              <button class="btn btn-outline-secondary" onclick="resetAISettingsForm()">
+                <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
+              </button>
+            </div>
+
+            <!-- Test connection result -->
+            <div id="aiTestResult" class="mt-3 d-none"></div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Info / Help Card ── -->
+      <div class="col-12 col-lg-5">
+        <div class="ai-settings-card">
+          <div class="ai-settings-card-header">
+            <i class="bi bi-info-circle-fill me-2"></i>How it works
+          </div>
+          <div class="ai-settings-card-body ai-help-body">
+            <ul class="ai-help-list">
+              <li><i class="bi bi-shield-lock-fill text-success me-2"></i>Your key is stored only in <strong>your account</strong> — no one else can read it.</li>
+              <li><i class="bi bi-arrow-repeat text-primary me-2"></i>Updates take effect <strong>immediately</strong> — no logout needed.</li>
+              <li><i class="bi bi-robot text-purple me-2"></i>All AI features (Sales Pitch, Reports, etc.) automatically use this key.</li>
+              <li><i class="bi bi-gift text-warning me-2"></i>Groq offers a <strong>free tier</strong> with generous limits. Perfect for a sales team.</li>
+            </ul>
+            <hr class="my-3">
+            <div class="ai-model-info">
+              <div class="fw-semibold small mb-2">Model Guide</div>
+              <div class="ai-model-row"><span class="ai-model-name">Llama 3.3 70B</span><span class="ai-model-desc">Best quality · Recommended</span></div>
+              <div class="ai-model-row"><span class="ai-model-name">Llama 3.1 8B</span><span class="ai-model-desc">Fastest response · Light tasks</span></div>
+              <div class="ai-model-row"><span class="ai-model-name">DeepSeek R1</span><span class="ai-model-desc">Strong reasoning · Complex tasks</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>`;
+}
+
+// ── Save / Update ─────────────────────────────────────────────
+async function saveAISettings() {
+  const key   = document.getElementById("aiApiKeyInput")?.value.trim();
+  const model = document.getElementById("aiModelSelect")?.value;
+
+  if (!key) {
+    toast("Please enter your Groq API Key.", "warning");
+    return;
+  }
+  if (!key.startsWith("gsk_")) {
+    toast("That doesn't look like a valid Groq key (should start with gsk_).", "warning");
+    return;
+  }
+
   try {
-    const res = await fetch(url, { ...options, signal: ctrl.signal });
-    return res;
-  } finally {
-    clearTimeout(timer);
+    const now = firebase.firestore.Timestamp.now();
+    await usersRef.doc(CURRENT_USER.uid).update({
+      "aiSettings.groqApiKey": key,
+      "aiSettings.model":      model,
+      "aiSettings.lastUpdated": now
+    });
+
+    // Update in-memory cache immediately — no logout needed
+    _aiSettings = { groqApiKey: key, model, lastUpdated: now };
+
+    toast("AI Settings saved successfully.", "success");
+    renderAISettingsView();
+  } catch (err) {
+    console.error("Save AI settings failed:", err);
+    toast("Failed to save AI settings. Please try again.", "danger");
   }
 }
 
-// ── FRIENDLY ERROR MESSAGES ───────────────────────────────────
-export function friendlyError(err) {
-  console.error('[AI Error]', err);
-  if (err instanceof AiError) return err.userMessage();
-  const raw = (err?.message || String(err)).toLowerCase();
-  if (raw.includes('abort') || raw.includes('timeout')) {
-    return 'Request timed out. Check your connection and try again.';
+// ── Delete API Key ────────────────────────────────────────────
+async function deleteApiKey() {
+  if (!confirm("Delete your Groq API Key? AI features will stop working until you add a new one.")) return;
+  try {
+    await usersRef.doc(CURRENT_USER.uid).update({
+      "aiSettings.groqApiKey": firebase.firestore.FieldValue.delete(),
+      "aiSettings.lastUpdated": firebase.firestore.Timestamp.now()
+    });
+    _aiSettings.groqApiKey = "";
+    toast("API Key deleted.", "success");
+    renderAISettingsView();
+  } catch (err) {
+    console.error("Delete API key failed:", err);
+    toast("Failed to delete API key.", "danger");
   }
-  return 'Unable to generate content. Please try again later.';
 }
 
-// ── CUSTOM ERROR CLASS ────────────────────────────────────────
-class AiError extends Error {
-  constructor(type, provider, detail = '') {
-    super(`[${provider}] ${type}: ${detail}`);
-    this.type     = type;
-    this.provider = provider;
-    this.detail   = detail;
+// ── Test Connection ───────────────────────────────────────────
+async function testAIConnection() {
+  const keyInput  = document.getElementById("aiApiKeyInput")?.value.trim();
+  const modelSel  = document.getElementById("aiModelSelect")?.value;
+  const resultEl  = document.getElementById("aiTestResult");
+  const testBtn   = document.querySelector('[onclick="testAIConnection()"]');
+
+  if (!keyInput) {
+    toast("Enter an API key first.", "warning");
+    return;
   }
-  userMessage() {
-    switch (this.type) {
-      case 'invalid_key':
-        if (this.provider === 'groq') {
-        return 'Invalid Groq API key. Please check your key in Settings.';
-      }
-      if (this.provider === 'gemini') {
-        return 'Invalid Gemini API key. Please check your API key in Settings.';
-      }
-      if (this.provider === 'openrouter') {
-        return 'Invalid OpenRouter API key. Please check your key in Settings.';
-      }
-      return `Invalid ${this.provider} API key. Check your key in Settings.`;
-      case 'api_error': {
-        const d = this.detail.toLowerCase();
-        if (d.includes('rate') || d.includes('quota') || d.includes('limit')) {
-          return 'Rate limit reached.\n\nYou have used your free quota. Wait 60 seconds and try again.';
-        }
-        if (d.includes('unauthorized') || d.includes('invalid') || d.includes('auth')) {
-          return 'API key rejected by the AI provider.\n\nCheck your key in Settings.';
-        }
-        return 'The AI service returned an error.\n\nPlease try again or switch providers in Settings.';
-      }
-      case 'unknown_provider':
-        return 'Unknown AI provider selected. Please check Settings.';
-      default:
-        return 'Unable to generate content. Please try again later.';
+
+  resultEl.className = "mt-3 ai-test-running";
+  resultEl.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>Testing connection…`;
+  resultEl.classList.remove("d-none");
+  if (testBtn) testBtn.disabled = true;
+
+  try {
+    const resp = await fetch(GROQ_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${keyInput}`
+      },
+      body: JSON.stringify({
+        model: modelSel || AI_DEFAULT_MODEL,
+        messages: [{ role: "user", content: "Reply with only the word: OK" }],
+        max_tokens: 5,
+        temperature: 0
+      })
+    });
+
+    if (resp.ok) {
+      resultEl.className = "mt-3 ai-test-success";
+      resultEl.innerHTML = `<i class="bi bi-check-circle-fill me-2"></i>Connection Successful — key is valid!`;
+    } else {
+      const body = await resp.text().catch(() => "");
+      resultEl.className = "mt-3 ai-test-fail";
+      resultEl.innerHTML = `<i class="bi bi-x-circle-fill me-2"></i>Invalid API Key (${resp.status})`;
+      console.warn("Groq test failed:", body);
     }
+  } catch (err) {
+    resultEl.className = "mt-3 ai-test-fail";
+    resultEl.innerHTML = `<i class="bi bi-x-circle-fill me-2"></i>Connection failed — check your internet or key.`;
+    console.error("Groq test error:", err);
+  } finally {
+    if (testBtn) testBtn.disabled = false;
   }
 }
 
-export { MODELS };
+// ── Reset form to last saved state ────────────────────────────
+function resetAISettingsForm() {
+  renderAISettingsView();
+}
+
+// ── Toggle show/hide API key ──────────────────────────────────
+function toggleApiKeyVisibility() {
+  const input = document.getElementById("aiApiKeyInput");
+  const icon  = document.getElementById("aiKeyToggleIcon");
+  if (!input) return;
+  if (input.type === "password") {
+    input.type = "text";
+    icon.className = "bi bi-eye-slash";
+  } else {
+    input.type = "password";
+    icon.className = "bi bi-eye";
+  }
+}
+
+// ── Copy API key to clipboard ─────────────────────────────────
+async function copyApiKey() {
+  const key = _aiSettings.groqApiKey;
+  if (!key) return;
+  try {
+    await navigator.clipboard.writeText(key);
+    const icon = document.getElementById("aiKeyCopyIcon");
+    icon.className = "bi bi-check2";
+    setTimeout(() => { icon.className = "bi bi-clipboard"; }, 2000);
+    toast("API Key copied.", "success");
+  } catch {
+    toast("Could not copy — please copy manually.", "warning");
+  }
+}
+
+// ── "No API Key" guard modal — shown by pitch.js & future AI ─
+function showAIKeyMissingModal() {
+  bootstrap.Modal.getOrCreateInstance(
+    document.getElementById("aiKeyMissingModal")
+  ).show();
+}
+
+function openAISettingsFromMissingModal() {
+  bootstrap.Modal.getInstance(
+    document.getElementById("aiKeyMissingModal")
+  )?.hide();
+  document.querySelectorAll(".nav-item-link").forEach(l => l.classList.remove("active"));
+  document.querySelector('[data-view="aisettings"]')?.classList.add("active");
+  showView("aisettings");
+}

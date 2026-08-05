@@ -38,8 +38,8 @@ function renderCampaignReportsPanel() {
   if (!wrap) return;
   
   // Access control
-  if (!(CURRENT_USER.role === "superadmin" || CURRENT_USER.role === "admin")) {
-    wrap.innerHTML = '<div class="alert alert-danger"><i class="bi bi-lock-fill me-2"></i>Access Denied. Only Admins can view Campaign Reports.</div>';
+  if (!hasPermission("campaignReports.view")) {
+    wrap.innerHTML = '<div class="alert alert-danger"><i class="bi bi-lock-fill me-2"></i>Access Denied.</div>';
     return;
   }
   
